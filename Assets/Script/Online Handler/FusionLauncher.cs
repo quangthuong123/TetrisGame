@@ -32,6 +32,8 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     [Header("Menu Features")]
     public TMP_InputField nameInputField;
     public Slider volumeSlider;
+    [Tooltip("Optional: shows the saved high score on the menu (e.g. Stats_Text)")]
+    public TextMeshProUGUI menuHighScoreText;
 
     [Header("Lobby UI Elements")]
     public TextMeshProUGUI lobbyStatusText;
@@ -53,6 +55,7 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     void Start()
     {
         if (nameInputField != null) nameInputField.text = PlayerPrefs.GetString("PlayerName", "Player 1");
+        if (menuHighScoreText != null) menuHighScoreText.text = "HIGH SCORE: " + GameOverManager.SavedHighScore;
 
         if (volumeSlider != null)
         {
@@ -128,6 +131,12 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     public void Button_CloseSettings() { settingsPanel.SetActive(false); mainMenuPanel.SetActive(true); }
     public void Button_BackToMain() { modeSelectPanel.SetActive(false); matchLobbyPanel.SetActive(false); mainMenuPanel.SetActive(true); }
     public void Button_QuitGame() { Application.Quit(); }
+
+    // Hook up to a Dropdown's On Value Changed (0 = Easy, 1 = Normal, 2 = Hard, 3 = Insane)
+    public void SetAIDifficulty(int level)
+    {
+        PlayerPrefs.SetInt(NPCAI.DifficultyPrefKey, Mathf.Clamp(level, 0, 3));
+    }
 
     public void Button_CancelMatchmaking()
     {
@@ -370,15 +379,16 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         if (countdownText)
         {
             countdownText.color = Color.yellow;
-            countdownText.text = "3";
-            yield return new WaitForSeconds(1f);
-            countdownText.text = "2";
-            yield return new WaitForSeconds(1f);
-            countdownText.text = "1";
-            yield return new WaitForSeconds(1f);
+            for (int i = 3; i >= 1; i--)
+            {
+                countdownText.text = i.ToString();
+                AudioManager.Play(Sfx.CountdownTick);
+                yield return new WaitForSeconds(1f);
+            }
 
             countdownText.color = Color.green;
             countdownText.text = "START!";
+            AudioManager.Play(Sfx.CountdownGo);
             yield return new WaitForSeconds(0.5f);
         }
 
@@ -419,6 +429,15 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
             playersSpawned++;
         }
 
+        // Single player: the NPC gets its own board in the opponent's spot
+        NPCAI npc = _isSinglePlayer ? FindFirstObjectByType<NPCAI>() : null;
+        if (npc != null && npc.PlaysOwnBoard && !AIBoardExists())
+        {
+            Vector3 aiPos = p2Spawn != null ? p2Spawn.position : new Vector3(5, 0, 0);
+            NetworkObject aiBoard = runner.Spawn(playerBoardPrefab, aiPos, Quaternion.identity, PlayerRef.None);
+            aiBoard.GetComponent<TetrisEngine>().aiController = npc;
+        }
+
         Debug.Log($"FusionLauncher spawned {playersSpawned} player board(s).");
         if (matchLobbyPanel) matchLobbyPanel.SetActive(false);
     }
@@ -433,6 +452,15 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         // A failed connection in the lobby is shown for a moment before leaving
         bool inLobby = SceneManager.GetActiveScene().buildIndex == MenuSceneBuildIndex;
         StartCoroutine(ReturnToMenu(inLobby && reason != ShutdownReason.Ok ? 3f : 0f));
+    }
+
+    private static bool AIBoardExists()
+    {
+        foreach (TetrisEngine board in FindObjectsByType<TetrisEngine>(FindObjectsSortMode.None))
+        {
+            if (board.aiController != null) return true;
+        }
+        return false;
     }
 
     public void OnInput(NetworkRunner runner, NetworkInput input)

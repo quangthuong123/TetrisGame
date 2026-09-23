@@ -48,18 +48,32 @@ public class GameOverManager : MonoBehaviour
         }
 
         // 2. Calculate High Score
-        int savedHighScore = PlayerPrefs.GetInt("MyHighScore", 0);
-        if (finalScore > savedHighScore)
+        int savedHighScore = SavedHighScore;
+        bool isNewHighScore = finalScore > savedHighScore;
+        if (isNewHighScore)
         {
             savedHighScore = finalScore;
-            PlayerPrefs.SetInt("MyHighScore", savedHighScore);
+            PlayerPrefs.SetInt(HighScoreKey, savedHighScore);
             PlayerPrefs.Save();
         }
 
         // 3. Update the Text
         if (finalScoreText != null) finalScoreText.text = "YOUR SCORE: " + finalScore;
-        if (highScoreText != null) highScoreText.text = "HIGH SCORE: " + savedHighScore;
+        if (highScoreText != null)
+        {
+            highScoreText.text = isNewHighScore
+                ? "<color=yellow>NEW HIGH SCORE! " + savedHighScore + "</color>"
+                : "HIGH SCORE: " + savedHighScore;
+        }
+
+        // 4. Sound
+        if (isVersusMatch) AudioManager.Play(isWinner ? Sfx.Win : Sfx.Lose);
+        else AudioManager.Play(Sfx.GameOver);
+        if (isNewHighScore) AudioManager.Play(Sfx.NewHighScore);
     }
+
+    public const string HighScoreKey = "MyHighScore";
+    public static int SavedHighScore => PlayerPrefs.GetInt(HighScoreKey, 0);
 
     public void ReturnToMainMenu()
     {

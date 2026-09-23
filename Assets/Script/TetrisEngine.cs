@@ -36,11 +36,30 @@ public class TetrisEngine : NetworkBehaviour
     [Networked] public float LockTimer { get; set; }
     [Networked] public int LockResets { get; set; }
     [Networked] public int LowestPieceY { get; set; } // Reaching a new lowest row refills the lock resets
+    [Networked] public float DasLeftTimer { get; set; }
+    [Networked] public float DasRightTimer { get; set; }
 
     // --- Versus Garbage ---
     [Networked] public int PendingGarbage { get; set; } // Lines queued to rise on this board
-    [Networked] public float DasLeftTimer { get; set; }
-    [Networked] public float DasRightTimer { get; set; }
+
+    // --- Sound Events ---
+    // The host bumps a counter when something happens; the owning player's Render plays a sound
+    // whenever a counter changes, so clients hear their own board too.
+    [Networked] public int SfxMoves { get; set; }
+    [Networked] public int SfxRotates { get; set; }
+    [Networked] public int SfxHardDrops { get; set; }
+    [Networked] public int SfxLocks { get; set; }
+    [Networked] public int SfxHolds { get; set; }
+    [Networked] public int SfxSkillsUsed { get; set; }
+    [Networked] public int SfxAttacksReceived { get; set; }
+    [Networked] public int SfxGarbageRisen { get; set; }
+
+    // --- AI ---
+    // Set on the host for a board NPCAI plays instead of a person (single player opponent)
+    [HideInInspector] public NPCAI aiController;
+    public int PieceSerial { get; private set; } // Host only: bumps whenever a new piece becomes active
+    public int[,] CurrentShape => currentPiece?.Shape;
+    public Vector2Int CurrentPosition => currentPiece != null ? currentPiece.Position : Vector2Int.zero;
 
     // Skill & Queue Data
     [Networked] public int ForcedNextPiece { get; set; }
@@ -136,7 +155,14 @@ public class TetrisEngine : NetworkBehaviour
         }
 
         // Missing input (e.g. a lagging client) must not freeze gravity, so it runs with nothing pressed
-        if (GetInput(out TetrisInput input))
+        bool hasInput = GetInput(out TetrisInput input);
+        if (!hasInput && aiController != null && HasStateAuthority)
+        {
+            input = aiController.GetInput(this, Runner.DeltaTime);
+            hasInput = true;
+        }
+
+        if (hasInput)
         {
             HandleDAS(input);
 
@@ -182,11 +208,11 @@ public class TetrisEngine : NetworkBehaviour
 
         if (input.LeftHeld)
         {
-            if (DasLeftTimer == 0f) TryMove(new Vector2Int(-1, 0));
+            if (DasLeftTimer == 0f) PlayerMove(new Vector2Int(-1, 0));
             DasLeftTimer += Runner.DeltaTime;
             if (DasLeftTimer >= dasDelay)
             {
-                TryMove(new Vector2Int(-1, 0));
+                PlayerMove(new Vector2Int(-1, 0));
                 DasLeftTimer -= arrSpeed;
             }
         }
@@ -194,15 +220,21 @@ public class TetrisEngine : NetworkBehaviour
 
         if (input.RightHeld)
         {
-            if (DasRightTimer == 0f) TryMove(new Vector2Int(1, 0));
+            if (DasRightTimer == 0f) PlayerMove(new Vector2Int(1, 0));
             DasRightTimer += Runner.DeltaTime;
             if (DasRightTimer >= dasDelay)
             {
-                TryMove(new Vector2Int(1, 0));
+                PlayerMove(new Vector2Int(1, 0));
                 DasRightTimer -= arrSpeed;
             }
         }
         else DasRightTimer = 0f;
+    }
+
+    // Sideways moves made by the player (gravity also uses TryMove, but shouldn't click)
+    void PlayerMove(Vector2Int direction)
+    {
+        if (TryMove(direction) && HasStateAuthority) SfxMoves++;
     }
 
     // ==========================================
@@ -261,7 +293,7 @@ public class TetrisEngine : NetworkBehaviour
 
         Vector2Int startPos = new Vector2Int(Width / 2 - shape.GetLength(0) / 2, Height - shape.GetLength(1));
         currentPiece = new Tetromino(shape, startPos);
-        ResetLockDelay();
+        OnNewActivePiece();
 
         if (!IsValidPosition(currentPiece.Position, currentPiece.Shape))
         {
@@ -301,6 +333,7 @@ public class TetrisEngine : NetworkBehaviour
         CanHold = false;
         LockTimer = 0f;
         fallTimer = 0f;
+        SfxHolds++;
         int temp = CurrentPieceID;
 
         if (HoldPieceID == 0)
@@ -315,7 +348,7 @@ public class TetrisEngine : NetworkBehaviour
             int[,] shape = TetrominoShapes.AllShapes[CurrentPieceID - 1];
             Vector2Int startPos = new Vector2Int(Width / 2 - shape.GetLength(0) / 2, Height - shape.GetLength(1));
             currentPiece = new Tetromino(shape, startPos);
-            ResetLockDelay();
+            OnNewActivePiece();
 
             if (!IsValidPosition(currentPiece.Position, currentPiece.Shape))
             {
@@ -392,6 +425,7 @@ public class TetrisEngine : NetworkBehaviour
     {
         if (!HasStateAuthority || currentPiece == null) return;
         while (TryMove(new Vector2Int(0, -1))) { }
+        SfxHardDrops++;
         LockPiece();
     }
 
@@ -412,8 +446,9 @@ public class TetrisEngine : NetworkBehaviour
         }
     }
 
-    void ResetLockDelay()
+    void OnNewActivePiece()
     {
+        PieceSerial++; // Tells the AI to plan a new placement
         LockTimer = 0f;
         LockResets = 0;
         LowestPieceY = currentPiece != null ? currentPiece.Position.y : Height;
@@ -458,6 +493,7 @@ public class TetrisEngine : NetworkBehaviour
                 currentPiece.Position = oldPos + kick;
                 if (HasStateAuthority)
                 {
+                    SfxRotates++;
                     OnPieceMoved();
                     UpdateNetworkPiecePositions();
                     UpdateGhostPositions();
@@ -512,6 +548,7 @@ public class TetrisEngine : NetworkBehaviour
 
         CanHold = true;
         LockTimer = 0f;
+        SfxLocks++;
         int linesCleared = CheckForLines();
 
         // Lock out: part of the piece locked above the visible board
@@ -608,6 +645,7 @@ public class TetrisEngine : NetworkBehaviour
     {
         if (!HasStateAuthority || IsGameOver) return;
         PendingGarbage = Mathf.Min(MaxPendingGarbage, PendingGarbage + lines);
+        SfxAttacksReceived++;
     }
 
     // Pushes the stack up and fills the bottom with garbage rows sharing one random hole
@@ -616,6 +654,7 @@ public class TetrisEngine : NetworkBehaviour
         int rows = Mathf.Min(PendingGarbage, MaxGarbagePerLock);
         if (rows <= 0) return;
         PendingGarbage -= rows;
+        SfxGarbageRisen++;
 
         // Anything in the top rows gets pushed off the board
         bool overflow = false;
@@ -662,14 +701,17 @@ public class TetrisEngine : NetworkBehaviour
     void UseSkill(int tier)
     {
         if (!HasStateAuthority) return;
-        int cost = tier == 1 ? 200 : (tier == 2 ? 600 : 1200);
+        int cost = SkillCost(tier);
 
         if (SkillPoints >= cost)
         {
             SkillPoints -= cost;
+            SfxSkillsUsed++;
             AttackOpponent(tier);
         }
     }
+
+    public static int SkillCost(int tier) => tier == 1 ? 200 : (tier == 2 ? 600 : 1200);
 
     void AttackOpponent(int tier)
     {
@@ -701,12 +743,54 @@ public class TetrisEngine : NetworkBehaviour
             int randomIndex = Random.Range(0, count);
             NetworkGrid.Set(filledIndices[randomIndex], 0);
         }
+        SfxAttacksReceived++;
     }
 
     public void ReceiveForcedPiece(int pieceID)
     {
         if (!HasStateAuthority) return;
         ForcedNextPiece = pieceID;
+        SfxAttacksReceived++;
+    }
+
+    // ==========================================
+    // --- CLIENT SOUNDS ---
+    // ==========================================
+    private bool _soundsPrimed;
+    private int _heardMoves, _heardRotates, _heardHardDrops, _heardLocks, _heardHolds;
+    private int _heardSkills, _heardAttacks, _heardGarbage, _heardLines;
+
+    void PlayBoardSounds()
+    {
+        if (_soundsPrimed)
+        {
+            if (SfxMoves != _heardMoves) AudioManager.Play(Sfx.Move);
+            if (SfxRotates != _heardRotates) AudioManager.Play(Sfx.Rotate);
+            if (SfxHolds != _heardHolds) AudioManager.Play(Sfx.Hold);
+
+            // A hard drop also locks: play just the heavier sound
+            if (SfxHardDrops != _heardHardDrops) AudioManager.Play(Sfx.HardDrop);
+            else if (SfxLocks != _heardLocks) AudioManager.Play(Sfx.Lock);
+
+            int newLines = LinesCleared - _heardLines;
+            if (newLines >= 4) AudioManager.Play(Sfx.Tetris);
+            else if (newLines > 0) AudioManager.Play(Sfx.LineClear);
+
+            if (SfxSkillsUsed != _heardSkills) AudioManager.Play(Sfx.SkillUsed);
+            if (SfxAttacksReceived != _heardAttacks) AudioManager.Play(Sfx.AttackReceived);
+            if (SfxGarbageRisen != _heardGarbage) AudioManager.Play(Sfx.GarbageRise);
+        }
+
+        _soundsPrimed = true;
+        _heardMoves = SfxMoves;
+        _heardRotates = SfxRotates;
+        _heardHardDrops = SfxHardDrops;
+        _heardLocks = SfxLocks;
+        _heardHolds = SfxHolds;
+        _heardLines = LinesCleared;
+        _heardSkills = SfxSkillsUsed;
+        _heardAttacks = SfxAttacksReceived;
+        _heardGarbage = SfxGarbageRisen;
     }
 
     // ==========================================
@@ -716,6 +800,8 @@ public class TetrisEngine : NetworkBehaviour
     {
         // SAFETY GUARD: Prevent InvalidOperationException before Fusion finishes spawning
         if (!_isSpawned) return;
+
+        if (HasInputAuthority) PlayBoardSounds();
 
         Color currentPieceColor = Color.white;
         if (CurrentPieceID > 0 && CurrentPieceID < blockColors.Length)
