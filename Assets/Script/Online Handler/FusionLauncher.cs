@@ -53,6 +53,14 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     public TextMeshProUGUI p1NameText;
     [Tooltip("Opponent's name in the lobby (found automatically as P2_Name_text if empty)")]
     public TextMeshProUGUI p2NameText;
+    [Tooltip("\"YOU · HOST\" / \"YOU · GUEST\" (found automatically as P1_Header if empty)")]
+    public TextMeshProUGUI p1HeaderText;
+    [Tooltip("\"OPPONENT · GUEST\" / \"OPPONENT · HOST\" (found automatically as P2_Header if empty)")]
+    public TextMeshProUGUI p2HeaderText;
+
+    // True once the other player is known to be in the room (from the player list or a message they sent)
+    private bool _opponentKnown;
+    private bool _opponentShown;
 
     [Header("Progress")]
     [Tooltip("PROFILE screen (found automatically as ProfilePanel if empty)")]
@@ -92,6 +100,8 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         if (nameInputField != null) nameInputField.text = PlayerPrefs.GetString("PlayerName", "Player 1");
         if (p1NameText == null) p1NameText = FindLobbyText("P1_Name_text");
         if (p2NameText == null) p2NameText = FindLobbyText("P2_Name_text");
+        if (p1HeaderText == null) p1HeaderText = FindLobbyText("P1_Header");
+        if (p2HeaderText == null) p2HeaderText = FindLobbyText("P2_Header");
         if (roomCodeInput == null && modeSelectPanel != null)
         {
             foreach (TMP_InputField field in modeSelectPanel.GetComponentsInChildren<TMP_InputField>(true))
@@ -166,6 +176,8 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
             _localInput.Skill2Pressed |= KeyBindings.Pressed(GameAction.Skill2);
             _localInput.Skill3Pressed |= KeyBindings.Pressed(GameAction.Skill3);
         }
+
+        UpdateLobby();
 
         // --- PING IDENTIFICATION ---
         if (_runner != null && _runner.IsRunning && pingText != null)
@@ -350,6 +362,7 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         _isOpponentReady = false;
         _countdownStarted = false;
         _sentName = false;
+        _opponentKnown = _opponentShown = false;
 
         if (p1NameText) p1NameText.text = NameWithLevel(LocalPlayerName(), ProfileStore.Profile.level);
         if (p2NameText) p2NameText.text = "<color=grey>Searching...</color>";
@@ -439,7 +452,7 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         // If the local player just established a connection
         if (player == runner.LocalPlayer)
         {
-            if (p1StatusText) p1StatusText.text = "<color=red>Not Ready</color>";
+            if (p1StatusText) p1StatusText.text = "<color=#FF8080>NOT READY</color>";
             if (lobbyStatusText) lobbyStatusText.text = currentPlayers == 1 ? WaitingForOpponentText() : "OPPONENT FOUND!";
         }
 
@@ -447,7 +460,7 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         if (currentPlayers == 2)
         {
             if (lobbyStatusText) lobbyStatusText.text = "OPPONENT CONNECTED! CLICK READY!";
-            if (p2StatusText) p2StatusText.text = "<color=red>Not Ready</color>";
+            if (p2StatusText) p2StatusText.text = "<color=#FF8080>NOT READY</color>";
             if (readyButton && !_isLocalReady) readyButton.SetActive(true);
             SendMyName();
         }
@@ -473,6 +486,8 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         {
             _isOpponentReady = false;
             _sentName = false; // Introduce ourselves again to the next opponent
+            _opponentKnown = _opponentShown = false;
+            if (readyButton) readyButton.SetActive(false);
             if (p2NameText) p2NameText.text = "<color=grey>Searching...</color>";
             if (p2StatusText) p2StatusText.text = "<color=grey>Waiting...</color>";
             if (lobbyStatusText) lobbyStatusText.text = "OPPONENT DISCONNECTED. WAITING...";
@@ -495,13 +510,43 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     // --- LOBBY READY & COUNTDOWN LOGIC ---
     // ==========================================
 
+    // Every frame in the online lobby: roles, and the READY button once the opponent is here.
+    // (Checked continuously instead of relying only on join callbacks, which a joining client may not get.)
+    private void UpdateLobby()
+    {
+        if (_isSinglePlayer || _runner == null || !_runner.IsRunning || matchLobbyPanel == null || !matchLobbyPanel.activeInHierarchy) return;
+
+        int players = 0;
+        foreach (var p in _runner.ActivePlayers) players++;
+        bool opponentHere = players >= 2 || _opponentKnown;
+        bool isHost = _runner.IsServer;
+
+        if (p1HeaderText) p1HeaderText.text = "YOU  ·  " + (isHost ? "HOST" : "GUEST");
+        if (p2HeaderText) p2HeaderText.text = opponentHere ? "OPPONENT  ·  " + (isHost ? "GUEST" : "HOST") : "OPPONENT";
+        if (readyButton) readyButton.SetActive(opponentHere && !_isLocalReady && !_countdownStarted);
+
+        // The moment the opponent shows up (or leaves), refresh the status lines once
+        if (opponentHere != _opponentShown)
+        {
+            _opponentShown = opponentHere;
+            if (opponentHere)
+            {
+                if (!_isLocalReady && p1StatusText) p1StatusText.text = "<color=#FF8080>NOT READY</color>";
+                if (!_isOpponentReady && p2StatusText) p2StatusText.text = "<color=#FF8080>NOT READY</color>";
+                if (lobbyStatusText) lobbyStatusText.text = "OPPONENT FOUND!\n<size=70%>Press READY to start</size>";
+                SendMyName();
+            }
+        }
+    }
+
     public void Button_Ready()
     {
         _isLocalReady = true;
 
         // Update our local visual proxy
-        if (p1StatusText) p1StatusText.text = "<color=green>READY ✓</color>";
+        if (p1StatusText) p1StatusText.text = "<color=#7CFF7C>READY ✓</color>";
         if (readyButton) readyButton.SetActive(false);
+        if (lobbyStatusText && !_isOpponentReady) lobbyStatusText.text = "YOU'RE READY!\n<size=70%>Waiting for your opponent...</size>";
 
         if (_runner == null || !_runner.IsRunning) return;
 
@@ -532,9 +577,11 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
             if (data[0] == 1)
             {
                 _isOpponentReady = true;
+                _opponentKnown = true;
+                if (lobbyStatusText && !_isLocalReady) lobbyStatusText.text = "OPPONENT IS READY!\n<size=70%>Press READY to start</size>";
 
                 // Update the opponent's visual proxy on our screen
-                if (p2StatusText) p2StatusText.text = "<color=green>READY ✓</color>";
+                if (p2StatusText) p2StatusText.text = "<color=#7CFF7C>READY ✓</color>";
 
                 if (runner.IsServer) CheckBothReady();
             }
@@ -551,6 +598,7 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
                 string opponentName = CleanName(parts[0]);
                 int opponentLevel = parts.Length > 1 && int.TryParse(parts[1], out int lvl) ? Mathf.Clamp(lvl, 1, 999) : 0;
                 if (p2NameText) p2NameText.text = NameWithLevel(opponentName, opponentLevel);
+                _opponentKnown = true;
                 SendMyName(); // Answer with ours if we haven't yet
             }
             // A '4' means the other player pressed REMATCH
