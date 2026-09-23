@@ -389,7 +389,7 @@ GameObject:
   - component: {fileID: 590738195}
   - component: {fileID: 590738194}
   m_Layer: 5
-  m_Name: SP_Display
+  m_Name: CurrentScore
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -650,9 +650,11 @@ MonoBehaviour:
   matchLobbyPanel: {fileID: 0}
   nameInputField: {fileID: 0}
   volumeSlider: {fileID: 0}
+  menuHighScoreText: {fileID: 0}
   lobbyStatusText: {fileID: 0}
   p1StatusText: {fileID: 0}
   p2StatusText: {fileID: 0}
+  pingText: {fileID: 0}
   countdownText: {fileID: 0}
   readyButton: {fileID: 0}
 --- !u!4 &664830085
@@ -1016,6 +1018,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   gameOverPanel: {fileID: 1620213986}
+  resultText: {fileID: 0}
   finalScoreText: {fileID: 0}
   highScoreText: {fileID: 0}
 --- !u!1660057539 &9223372036854775807
