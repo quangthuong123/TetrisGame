@@ -57,11 +57,7 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         if (nameInputField != null) nameInputField.text = PlayerPrefs.GetString("PlayerName", "Player 1");
         if (menuHighScoreText != null) menuHighScoreText.text = "HIGH SCORE: " + GameOverManager.SavedHighScore;
 
-        if (volumeSlider != null)
-        {
-            volumeSlider.value = PlayerPrefs.GetFloat("MasterVolume", 1f);
-            AudioListener.volume = volumeSlider.value;
-        }
+        if (volumeSlider != null) volumeSlider.value = GameSettings.MasterVolume;
 
         bool isGameplayScene = SceneManager.GetActiveScene().buildIndex == MultiplayerSceneBuildIndex
             || SceneManager.GetActiveScene().buildIndex == SinglePlayerSceneBuildIndex;
@@ -119,11 +115,7 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     public void SavePlayerName() { if (nameInputField != null) PlayerPrefs.SetString("PlayerName", nameInputField.text); }
     public void OnVolumeChanged()
     {
-        if (volumeSlider != null)
-        {
-            AudioListener.volume = volumeSlider.value;
-            PlayerPrefs.SetFloat("MasterVolume", volumeSlider.value);
-        }
+        if (volumeSlider != null) GameSettings.SetMasterVolume(volumeSlider.value);
     }
 
     public void Button_OpenModeSelect() { SavePlayerName(); mainMenuPanel.SetActive(false); modeSelectPanel.SetActive(true); }
@@ -135,7 +127,7 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     // Hook up to a Dropdown's On Value Changed (0 = Easy, 1 = Normal, 2 = Hard, 3 = Insane)
     public void SetAIDifficulty(int level)
     {
-        PlayerPrefs.SetInt(NPCAI.DifficultyPrefKey, Mathf.Clamp(level, 0, 3));
+        GameSettings.AIDifficulty = level;
     }
 
     public void Button_CancelMatchmaking()
@@ -477,6 +469,9 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
 
     public void OnInput(NetworkRunner runner, NetworkInput input)
     {
+        _localInput.HasHandling = true;
+        _localInput.DasMs = (short)GameSettings.DasMs;
+        _localInput.ArrMs = (short)GameSettings.ArrMs;
         input.Set(_localInput);
         _localInput = default;
     }

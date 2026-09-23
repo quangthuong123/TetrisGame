@@ -13,4 +13,9 @@ public struct TetrisInput : INetworkInput
     public NetworkBool Skill1Pressed;
     public NetworkBool Skill2Pressed;
     public NetworkBool Skill3Pressed;
+
+    // The player's handling settings, sent with every input so the host moves pieces at their speed
+    public NetworkBool HasHandling;
+    public short DasMs;
+    public short ArrMs;
 }

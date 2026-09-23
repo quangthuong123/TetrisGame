@@ -251,32 +251,38 @@ public class TetrisEngine : NetworkBehaviour
     // ==========================================
     void HandleDAS(TetrisInput input)
     {
-        float dasDelay = 0.15f;
-        float arrSpeed = 0.05f;
+        // Each player's own handling from their Settings (the AI and old clients use the defaults)
+        float dasDelay = input.HasHandling ? input.DasMs / 1000f : GameSettings.DefaultDasMs / 1000f;
+        float arrSpeed = input.HasHandling ? input.ArrMs / 1000f : GameSettings.DefaultArrMs / 1000f;
 
-        if (input.LeftHeld)
-        {
-            if (DasLeftTimer == 0f) PlayerMove(new Vector2Int(-1, 0));
-            DasLeftTimer += Runner.DeltaTime;
-            if (DasLeftTimer >= dasDelay)
-            {
-                PlayerMove(new Vector2Int(-1, 0));
-                DasLeftTimer -= arrSpeed;
-            }
-        }
+        if (input.LeftHeld) DasLeftTimer = HandleHeldDirection(DasLeftTimer, new Vector2Int(-1, 0), dasDelay, arrSpeed);
         else DasLeftTimer = 0f;
 
-        if (input.RightHeld)
+        if (input.RightHeld) DasRightTimer = HandleHeldDirection(DasRightTimer, new Vector2Int(1, 0), dasDelay, arrSpeed);
+        else DasRightTimer = 0f;
+    }
+
+    // Returns the updated DAS timer for one held direction
+    float HandleHeldDirection(float timer, Vector2Int direction, float dasDelay, float arrSpeed)
+    {
+        if (timer == 0f) PlayerMove(direction);
+        timer += Runner.DeltaTime;
+        if (timer >= dasDelay)
         {
-            if (DasRightTimer == 0f) PlayerMove(new Vector2Int(1, 0));
-            DasRightTimer += Runner.DeltaTime;
-            if (DasRightTimer >= dasDelay)
+            if (arrSpeed <= 0f)
             {
-                PlayerMove(new Vector2Int(1, 0));
-                DasRightTimer -= arrSpeed;
+                // ARR 0: slide straight to the wall
+                bool moved = false;
+                while (TryMove(direction)) moved = true;
+                if (moved && HasStateAuthority) SfxMoves++;
+            }
+            else
+            {
+                PlayerMove(direction);
+                timer -= arrSpeed;
             }
         }
-        else DasRightTimer = 0f;
+        return timer;
     }
 
     // Sideways moves made by the player (gravity also uses TryMove, but shouldn't click)
@@ -895,8 +901,8 @@ public class TetrisEngine : NetworkBehaviour
             }
         }
 
-        // 3. Draw Ghost Piece
-        if (HasInputAuthority)
+        // 3. Draw Ghost Piece (can be turned off in Settings)
+        if (HasInputAuthority && GameSettings.ShowGhost)
         {
             Color ghostColor = currentPieceColor;
             ghostColor.a = 0.4f;

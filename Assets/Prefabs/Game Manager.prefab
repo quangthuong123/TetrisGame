@@ -105,6 +105,7 @@ MonoBehaviour:
   skill1Icon: {fileID: 3558394026377694382}
   skill2Icon: {fileID: 486041231739415564}
   skill3Icon: {fileID: 7290670907213963664}
+  startDelaySeconds: 3
   baseFallSpeed: 0.8
   softDropSpeed: 0.05
   speedDecreasePerSecond: 0.003
@@ -1341,6 +1342,82 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 7749617748938425829}
     m_Modifications:
+    - target: {fileID: 1093869905431301389, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_Sprite
+      value: 
+      objectReference: {fileID: 21300000, guid: 90ced506aa0f51a4289ec49382f4a6ed, type: 3}
+    - target: {fileID: 1093869905431301389, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_Color.b
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 1093869905431301389, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_Color.g
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 1093869905431301389, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_Color.r
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 1093869905431301389, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_PixelsPerUnitMultiplier
+      value: 1.3843589
+      objectReference: {fileID: 0}
+    - target: {fileID: 1427420925491160617, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_Transition
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 1427420925491160617, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_Colors.m_PressedColor.b
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 1427420925491160617, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_Colors.m_PressedColor.g
+      value: 0.76
+      objectReference: {fileID: 0}
+    - target: {fileID: 1427420925491160617, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_Colors.m_PressedColor.r
+      value: 0.7
+      objectReference: {fileID: 0}
+    - target: {fileID: 1427420925491160617, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.a
+      value: 0.7
+      objectReference: {fileID: 0}
+    - target: {fileID: 1427420925491160617, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.b
+      value: 0.7
+      objectReference: {fileID: 0}
+    - target: {fileID: 1427420925491160617, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.g
+      value: 0.6
+      objectReference: {fileID: 0}
+    - target: {fileID: 1427420925491160617, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_Colors.m_DisabledColor.r
+      value: 0.6
+      objectReference: {fileID: 0}
+    - target: {fileID: 1427420925491160617, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_Colors.m_SelectedColor.b
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 1427420925491160617, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_Colors.m_SelectedColor.g
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 1427420925491160617, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_Colors.m_SelectedColor.r
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 1427420925491160617, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_Colors.m_HighlightedColor.b
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 1427420925491160617, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_Colors.m_HighlightedColor.g
+      value: 0.92
+      objectReference: {fileID: 0}
+    - target: {fileID: 1427420925491160617, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_Colors.m_HighlightedColor.r
+      value: 0.88
+      objectReference: {fileID: 0}
     - target: {fileID: 6699635059007582319, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
       propertyPath: m_Name
       value: Game over

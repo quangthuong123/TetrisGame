@@ -80,6 +80,10 @@ public class AudioManager : MonoBehaviour
         Instance = this;
         DontDestroyOnLoad(gameObject);
 
+        // The player's saved volumes (Settings menu) win over the prefab's defaults
+        musicVolume = GameSettings.MusicVolume;
+        sfxVolume = GameSettings.SfxVolume;
+
         _musicSource = gameObject.AddComponent<AudioSource>();
         _musicSource.loop = true;
         _musicSource.playOnAwake = false;
