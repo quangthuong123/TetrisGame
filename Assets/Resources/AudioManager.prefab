@@ -45,25 +45,25 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   menuMusic: {fileID: 8300000, guid: 5ae5b4f05aaedda4bb073e24ee777fb3, type: 3}
-  gameMusic: {fileID: 8300000, guid: 5ae5b4f05aaedda4bb073e24ee777fb3, type: 3}
+  gameMusic: {fileID: 8300000, guid: 9d4e049e6d964dd09f79e33156d5a8f5, type: 3}
   singlePlayerMusic: {fileID: 0}
   musicVolume: 0.5
-  moveSound: {fileID: 8300000, guid: 1e7a587164fcbef45b40536469e6c432, type: 3}
-  rotateSound: {fileID: 8300000, guid: 1e7a587164fcbef45b40536469e6c432, type: 3}
-  hardDropSound: {fileID: 8300000, guid: c12d40421acc84a4b90823d6080bbad1, type: 3}
-  lockSound: {fileID: 8300000, guid: 37c9133889e2bfc4296ead93a281acc2, type: 3}
-  holdSound: {fileID: 8300000, guid: c12d40421acc84a4b90823d6080bbad1, type: 3}
-  lineClearSound: {fileID: 8300000, guid: 37c9133889e2bfc4296ead93a281acc2, type: 3}
-  tetrisSound: {fileID: 0}
-  skillUsedSound: {fileID: 8300000, guid: c12d40421acc84a4b90823d6080bbad1, type: 3}
-  attackReceivedSound: {fileID: 8300000, guid: 37c9133889e2bfc4296ead93a281acc2, type: 3}
-  garbageRiseSound: {fileID: 0}
-  countdownTickSound: {fileID: 8300000, guid: 1e7a587164fcbef45b40536469e6c432, type: 3}
-  countdownGoSound: {fileID: 8300000, guid: c12d40421acc84a4b90823d6080bbad1, type: 3}
-  winSound: {fileID: 0}
-  loseSound: {fileID: 0}
-  gameOverSound: {fileID: 0}
-  newHighScoreSound: {fileID: 0}
+  moveSound: {fileID: 8300000, guid: d91e6bbbd48140ebb343dd18a197f9b8, type: 3}
+  rotateSound: {fileID: 8300000, guid: 72e1ab23ec7f4e778b4a8c3260e44d78, type: 3}
+  hardDropSound: {fileID: 8300000, guid: 649fdcb2b42f4be9bb03ac9b720012d9, type: 3}
+  lockSound: {fileID: 8300000, guid: 61005b21dd5245d6ab45739df6310d85, type: 3}
+  holdSound: {fileID: 8300000, guid: f6ccf1659b784d389f2c1387d4dde25b, type: 3}
+  lineClearSound: {fileID: 8300000, guid: df33ed1d58c74d5ea5f03a8dc552b96d, type: 3}
+  tetrisSound: {fileID: 8300000, guid: b84b53b7f0a44af7b8c4e737d7f62af1, type: 3}
+  skillUsedSound: {fileID: 8300000, guid: 94dfaac664e84b86be82cccf0fdd2a69, type: 3}
+  attackReceivedSound: {fileID: 8300000, guid: 6b3259bb19e040c29c584447f0a93181, type: 3}
+  garbageRiseSound: {fileID: 8300000, guid: 5af086cf4f974db192085b9f7bb4351a, type: 3}
+  countdownTickSound: {fileID: 8300000, guid: 1b4c81d80c7146d2b17f003f19f3b62c, type: 3}
+  countdownGoSound: {fileID: 8300000, guid: ae0deb157ca14186a93e3e00b22f42e3, type: 3}
+  winSound: {fileID: 8300000, guid: 73b52c2ef2da460fa7fbf9e81d55026f, type: 3}
+  loseSound: {fileID: 8300000, guid: 79db9fb7fd9b4e3793b86cc9975ae856, type: 3}
+  gameOverSound: {fileID: 8300000, guid: 60f23633f28a4fb8a2a1fa8d2c6d54af, type: 3}
+  newHighScoreSound: {fileID: 8300000, guid: d7e1854294e34318854a71d003bb8644, type: 3}
   sfxVolume: 0.8
   pitchVariation: 0.05
   musicMixerGroup: {fileID: 0}

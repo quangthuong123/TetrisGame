@@ -91,7 +91,18 @@ public static class SettingsPanelBuilder
         TMP_Text title = NewText("Title", card, "SETTINGS", 64, TextAlignmentOptions.Center, Color.white, true);
         Layout(title.gameObject, preferredHeight: 80);
 
-        // Two columns
+        // Page tabs: GENERAL | CONTROLS
+        RectTransform tabs = NewUI("Tabs", card);
+        Layout(tabs.gameObject, preferredHeight: 70);
+        HorizontalLayoutGroup tabsLayout = tabs.gameObject.AddComponent<HorizontalLayoutGroup>();
+        tabsLayout.spacing = 30;
+        tabsLayout.childAlignment = TextAnchor.MiddleCenter;
+        tabsLayout.childControlWidth = tabsLayout.childControlHeight = true;
+        tabsLayout.childForceExpandWidth = tabsLayout.childForceExpandHeight = false;
+        Button generalTab = NewButton("Tab_General", tabs, "GENERAL", ButtonSkin.Purple, 300, 66, 30);
+        Button controlsTab = NewButton("Tab_Controls", tabs, "CONTROLS", ButtonSkin.Purple, 300, 66, 30);
+
+        // GENERAL page: two columns
         RectTransform columns = NewUI("Columns", card);
         Layout(columns.gameObject, flexibleHeight: 1);
         HorizontalLayoutGroup columnsLayout = columns.gameObject.AddComponent<HorizontalLayoutGroup>();
@@ -124,18 +135,32 @@ public static class SettingsPanelBuilder
         menu.ghostToggle = ToggleRow("Ghost Piece", right);
         menu.aiDifficultyDropdown = DropdownRow("AI Difficulty (Single Player)", right);
 
-        Section("CONTROLS", right);
-        TMP_Text controls = NewText("ControlsList", right,
-            "Left / Right Arrow  -  Move\n" +
-            "Up Arrow  -  Rotate\n" +
-            "Down Arrow  -  Soft drop\n" +
-            "Space  -  Hard drop\n" +
-            "C  -  Hold\n" +
-            "1 / 2 / 3  -  Use skill\n" +
-            "Esc  -  Close settings",
-            24, TextAlignmentOptions.TopLeft, Color.white, false);
-        controls.lineSpacing = 12;
-        Layout(controls.gameObject, preferredHeight: 250);
+        // CONTROLS page: every action with a click-to-rebind key button
+        RectTransform controlsPage = NewUI("ControlsPage", card);
+        Layout(controlsPage.gameObject, flexibleHeight: 1);
+        HorizontalLayoutGroup controlsLayout = controlsPage.gameObject.AddComponent<HorizontalLayoutGroup>();
+        controlsLayout.spacing = 80;
+        controlsLayout.childControlWidth = controlsLayout.childControlHeight = true;
+        controlsLayout.childForceExpandWidth = controlsLayout.childForceExpandHeight = true;
+        RectTransform keysLeft = Column("KeysLeft", controlsPage);
+        RectTransform keysRight = Column("KeysRight", controlsPage);
+
+        Section("MOVEMENT", keysLeft);
+        var actions = (GameAction[])System.Enum.GetValues(typeof(GameAction));
+        for (int i = 0; i < actions.Length; i++)
+        {
+            if (i == 6) Section("HOLD & SKILLS", keysRight);
+            KeyRow(actions[i], i < 6 ? keysLeft : keysRight);
+        }
+        TMP_Text hint = NewText("Hint", keysRight, "Click a key, then press the new one.\nEsc cancels. Keys already in use swap places.",
+            22, TextAlignmentOptions.TopLeft, SectionColor, false);
+        Layout(hint.gameObject, preferredHeight: 90);
+
+        menu.generalPage = columns.gameObject;
+        menu.controlsPage = controlsPage.gameObject;
+        menu.generalTab = generalTab;
+        menu.controlsTab = controlsTab;
+        controlsPage.gameObject.SetActive(false);
 
         // Footer buttons
         RectTransform footer = NewUI("Footer", card);
@@ -321,15 +346,26 @@ public static class SettingsPanelBuilder
         return dropdown;
     }
 
-    private static Button NewButton(string name, Transform parent, string label, Sprite sprite)
+    // A row: action name on the left, its key button on the right
+    private static void KeyRow(GameAction action, Transform parent)
+    {
+        RectTransform row = Row(KeyBindings.DisplayName(action), parent);
+        Button button = NewButton("Key_" + action, row, KeyBindings.KeyName(KeyBindings.Get(action)), ButtonSkin.Blue, 220, 50, 26);
+        KeyRebindButton rebind = button.gameObject.AddComponent<KeyRebindButton>();
+        rebind.action = action;
+        rebind.keyLabel = button.GetComponentInChildren<TMP_Text>(true);
+    }
+
+    private static Button NewButton(string name, Transform parent, string label, Sprite sprite,
+        float width = 380, float height = 96, float fontSize = 34)
     {
         RectTransform rect = NewUI(name, parent);
-        Layout(rect.gameObject, preferredWidth: 380, preferredHeight: 96);
-        rect.sizeDelta = new Vector2(380, 96);
+        Layout(rect.gameObject, preferredWidth: width, preferredHeight: height);
+        rect.sizeDelta = new Vector2(width, height);
         rect.gameObject.AddComponent<Image>();
         Button button = rect.gameObject.AddComponent<Button>();
 
-        TMP_Text text = NewText("Label", rect, label, 34, TextAlignmentOptions.Center, Color.white, true);
+        TMP_Text text = NewText("Label", rect, label, fontSize, TextAlignmentOptions.Center, Color.white, true);
         RectTransform textRect = text.rectTransform;
         textRect.anchorMin = Vector2.zero;
         textRect.anchorMax = Vector2.one;

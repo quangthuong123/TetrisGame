@@ -30,6 +30,12 @@ public class SettingsMenu : MonoBehaviour
     public Toggle ghostToggle;
     public TMP_Dropdown aiDifficultyDropdown;
 
+    [Header("Pages")]
+    public GameObject generalPage;
+    public GameObject controlsPage;
+    public Button generalTab;
+    public Button controlsTab;
+
     [Header("Buttons")]
     public Button resetButton;
     public Button backButton;
@@ -63,17 +69,34 @@ public class SettingsMenu : MonoBehaviour
         if (ghostToggle) ghostToggle.onValueChanged.AddListener(GameSettings.SetShowGhost);
         if (aiDifficultyDropdown) aiDifficultyDropdown.onValueChanged.AddListener(i => GameSettings.AIDifficulty = i);
 
-        if (resetButton) resetButton.onClick.AddListener(() => { GameSettings.ResetToDefaults(); Refresh(); });
+        if (resetButton) resetButton.onClick.AddListener(() => { GameSettings.ResetToDefaults(); KeyBindings.ResetToDefaults(); Refresh(); });
+
+        if (generalTab) generalTab.onClick.AddListener(() => ShowPage(false));
+        if (controlsTab) controlsTab.onClick.AddListener(() => ShowPage(true));
         if (backButton) backButton.onClick.AddListener(Close);
     }
 
-    void OnEnable() => Refresh();
+    void OnEnable()
+    {
+        Refresh();
+        ShowPage(false);
+    }
+
+    // GENERAL (audio / display / gameplay) or CONTROLS (key rebinding)
+    public void ShowPage(bool controls)
+    {
+        if (generalPage) generalPage.SetActive(!controls);
+        if (controlsPage) controlsPage.SetActive(controls);
+        if (generalTab) generalTab.interactable = controls;   // The open tab is greyed out
+        if (controlsTab) controlsTab.interactable = !controls;
+    }
 
     void OnDisable() => GameSettings.Save();
 
     void Update()
     {
-        if (Input.GetKeyDown(KeyCode.Escape)) Close();
+        bool escapeUsedByRebind = KeyRebindButton.IsListening || KeyRebindButton.EscapeHandledFrame == Time.frameCount;
+        if (Input.GetKeyDown(KeyCode.Escape) && !escapeUsedByRebind) Close();
     }
 
     public void Close()

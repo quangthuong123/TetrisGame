@@ -42,6 +42,28 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     public TextMeshProUGUI pingText;      // Ping indicator
     public TextMeshProUGUI countdownText; // The giant center countdown
     public GameObject readyButton;        // The Ready button
+    [Tooltip("Your name in the lobby (found automatically as P1_Name_text if empty)")]
+    public TextMeshProUGUI p1NameText;
+    [Tooltip("Opponent's name in the lobby (found automatically as P2_Name_text if empty)")]
+    public TextMeshProUGUI p2NameText;
+
+    [Header("Private Rooms")]
+    [Tooltip("Room code box on the mode select panel (found automatically as RoomCode_Input if empty)")]
+    public TMP_InputField roomCodeInput;
+    private const string PrivateRoomPrefix = "tetris-private-";
+    private const string RoomCodeLetters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // No 0/O or 1/I mix-ups
+    private const int RoomCodeLength = 5;
+    private string _roomCode;
+
+    // Lobby messages (first byte of the reliable data)
+    private const byte MsgReady = 1;
+    private const byte MsgStartCountdown = 2;
+    private const byte MsgName = 3;
+    private const byte MsgRematch = 4;
+    private bool _localRematch;
+    private bool _opponentRematch;
+    private const int MaxNameLength = 16;
+    private bool _sentName = false;
 
     private TetrisInput _localInput;
     private bool _isSinglePlayer = false;
@@ -55,6 +77,15 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     void Start()
     {
         if (nameInputField != null) nameInputField.text = PlayerPrefs.GetString("PlayerName", "Player 1");
+        if (p1NameText == null) p1NameText = FindLobbyText("P1_Name_text");
+        if (p2NameText == null) p2NameText = FindLobbyText("P2_Name_text");
+        if (roomCodeInput == null && modeSelectPanel != null)
+        {
+            foreach (TMP_InputField field in modeSelectPanel.GetComponentsInChildren<TMP_InputField>(true))
+            {
+                if (field.name == "RoomCode_Input") roomCodeInput = field;
+            }
+        }
         if (menuHighScoreText != null) menuHighScoreText.text = "HIGH SCORE: " + GameOverManager.SavedHighScore;
 
         if (volumeSlider != null) volumeSlider.value = GameSettings.MasterVolume;
@@ -84,19 +115,25 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
 
     void Update()
     {
-        // Continuous input for movement
-        _localInput.LeftHeld = Input.GetKey(KeyCode.LeftArrow);
-        _localInput.RightHeld = Input.GetKey(KeyCode.RightArrow);
-        _localInput.DownHeld = Input.GetKey(KeyCode.DownArrow);
+        // Keys come from KeyBindings (rebindable in Settings > Controls); ignore them while a key is being rebound
+        if (!KeyRebindButton.IsListening)
+        {
+            // Continuous input for movement
+            _localInput.LeftHeld = KeyBindings.Held(GameAction.MoveLeft);
+            _localInput.RightHeld = KeyBindings.Held(GameAction.MoveRight);
+            _localInput.DownHeld = KeyBindings.Held(GameAction.SoftDrop);
 
-        // Single tap inputs for actions
-        _localInput.UpPressed |= Input.GetKeyDown(KeyCode.UpArrow);
-        _localInput.SpacePressed |= Input.GetKeyDown(KeyCode.Space);
-        _localInput.HoldPressed |= Input.GetKeyDown(KeyCode.C);
+            // Single tap inputs for actions
+            _localInput.UpPressed |= KeyBindings.Pressed(GameAction.RotateClockwise);
+            _localInput.RotateCCWPressed |= KeyBindings.Pressed(GameAction.RotateCounterClockwise);
+            _localInput.Rotate180Pressed |= KeyBindings.Pressed(GameAction.Rotate180);
+            _localInput.SpacePressed |= KeyBindings.Pressed(GameAction.HardDrop);
+            _localInput.HoldPressed |= KeyBindings.Pressed(GameAction.Hold);
 
-        _localInput.Skill1Pressed |= Input.GetKeyDown(KeyCode.Alpha1);
-        _localInput.Skill2Pressed |= Input.GetKeyDown(KeyCode.Alpha2);
-        _localInput.Skill3Pressed |= Input.GetKeyDown(KeyCode.Alpha3);
+            _localInput.Skill1Pressed |= KeyBindings.Pressed(GameAction.Skill1);
+            _localInput.Skill2Pressed |= KeyBindings.Pressed(GameAction.Skill2);
+            _localInput.Skill3Pressed |= KeyBindings.Pressed(GameAction.Skill3);
+        }
 
         // --- PING IDENTIFICATION ---
         if (_runner != null && _runner.IsRunning && pingText != null)
@@ -160,34 +197,57 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         MenuReturner.Load(MenuSceneBuildIndex, delay, gameObject);
     }
 
-    public void Button_SinglePlayer()
+    public void Button_Sprint() => StartSolo(MatchMode.Sprint);
+    public void Button_Ultra() => StartSolo(MatchMode.Ultra);
+
+    // Single player against the AI
+    public void Button_SinglePlayer() => StartSolo(MatchMode.Versus);
+
+    private void StartSolo(MatchMode mode)
     {
+        GameModeSettings.Current = mode;
         _isSinglePlayer = true;
         modeSelectPanel.SetActive(false);
         StartNetwork(1);
     }
 
-    public void Button_Multiplayer()
+    public void Button_Multiplayer() => BeginMultiplayer(null);
+
+    // Private room: type a friend's code to join them, or leave it empty to create a room and get a code
+    public void Button_PrivateRoom()
     {
+        string code = CleanRoomCode(roomCodeInput != null ? roomCodeInput.text : "");
+        if (code.Length == 0) code = NewRoomCode();
+        if (roomCodeInput != null) roomCodeInput.text = code;
+        BeginMultiplayer(code);
+    }
+
+    private void BeginMultiplayer(string privateCode)
+    {
+        GameModeSettings.Current = MatchMode.Versus;
         _isSinglePlayer = false;
+        _roomCode = privateCode;
 
         // Reset Lobby States
         _isLocalReady = false;
         _isOpponentReady = false;
         _countdownStarted = false;
+        _sentName = false;
 
+        if (p1NameText) p1NameText.text = LocalPlayerName();
+        if (p2NameText) p2NameText.text = "<color=grey>Searching...</color>";
         if (countdownText) countdownText.text = "";
         if (p1StatusText) p1StatusText.text = "<color=grey>Connecting...</color>";
         if (p2StatusText) p2StatusText.text = "<color=grey>Waiting...</color>";
-        if (lobbyStatusText) lobbyStatusText.text = "CONNECTING TO MATCHMAKING SERVER...";
+        if (lobbyStatusText) lobbyStatusText.text = _roomCode != null ? "OPENING ROOM " + _roomCode + "..." : "CONNECTING TO MATCHMAKING SERVER...";
         if (readyButton) readyButton.SetActive(false); // Hidden by default
 
         modeSelectPanel.SetActive(false);
         matchLobbyPanel.SetActive(true);
-        StartNetwork(2);
+        StartNetwork(2, _roomCode);
     }
 
-    private async void StartNetwork(int maxPlayers)
+    private async void StartNetwork(int maxPlayers, string privateCode = null)
     {
         // 1. Prevent Component Leaks
         if (_runner != null)
@@ -208,7 +268,9 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
             GameMode = _isSinglePlayer ? GameMode.Single : GameMode.AutoHostOrClient,
             // Multiplayer: no session name = random matchmaking (join any open match, or host a new one),
             // so many matches can run at once instead of everyone fighting over a single room
-            SessionName = _isSinglePlayer ? Guid.NewGuid().ToString() : null,
+            // A private room uses the code as its name and is hidden from random matchmaking
+            SessionName = _isSinglePlayer ? Guid.NewGuid().ToString() : (privateCode != null ? PrivateRoomPrefix + privateCode : null),
+            IsVisible = privateCode == null,
             SceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>(),
             PlayerCount = maxPlayers
         };
@@ -253,7 +315,7 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         if (player == runner.LocalPlayer)
         {
             if (p1StatusText) p1StatusText.text = "<color=red>Not Ready</color>";
-            if (lobbyStatusText) lobbyStatusText.text = currentPlayers == 1 ? "WAITING FOR OPPONENT TO JOIN..." : "OPPONENT FOUND!";
+            if (lobbyStatusText) lobbyStatusText.text = currentPlayers == 1 ? WaitingForOpponentText() : "OPPONENT FOUND!";
         }
 
         // When BOTH players are fully connected and in the room
@@ -262,6 +324,7 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
             if (lobbyStatusText) lobbyStatusText.text = "OPPONENT CONNECTED! CLICK READY!";
             if (p2StatusText) p2StatusText.text = "<color=red>Not Ready</color>";
             if (readyButton && !_isLocalReady) readyButton.SetActive(true);
+            SendMyName();
         }
     }
 
@@ -276,12 +339,16 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
                 if (board.Object.InputAuthority != player) board.DeclareWinner();
                 else board.Forfeit(); // Stop the leaver's board instead of letting it fall on its own
             }
+            _opponentRematch = false;
+            if (GameOverManager.Instance != null) GameOverManager.Instance.OnOpponentLeft();
         }
 
         // Instantly reset the lobby if the opponent disconnects
         if (!_isSinglePlayer && matchLobbyPanel != null && matchLobbyPanel.activeInHierarchy)
         {
             _isOpponentReady = false;
+            _sentName = false; // Introduce ourselves again to the next opponent
+            if (p2NameText) p2NameText.text = "<color=grey>Searching...</color>";
             if (p2StatusText) p2StatusText.text = "<color=grey>Waiting...</color>";
             if (lobbyStatusText) lobbyStatusText.text = "OPPONENT DISCONNECTED. WAITING...";
             if (readyButton) readyButton.SetActive(false);
@@ -347,11 +414,155 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
                 if (runner.IsServer) CheckBothReady();
             }
             // If we receive a '2', the host is starting the countdown!
-            else if (data[0] == 2)
+            else if (data[0] == MsgStartCountdown)
             {
                 _countdownRoutine = StartCoroutine(LobbyCountdown());
             }
+            // A '3' carries the opponent's name
+            else if (data[0] == MsgName)
+            {
+                string opponentName = CleanName(System.Text.Encoding.UTF8.GetString(data.Array, data.Offset + 1, data.Count - 1));
+                if (p2NameText) p2NameText.text = opponentName;
+                SendMyName(); // Answer with ours if we haven't yet
+            }
+            // A '4' means the other player pressed REMATCH
+            else if (data[0] == MsgRematch)
+            {
+                _opponentRematch = true;
+                if (GameOverManager.Instance != null) GameOverManager.Instance.OnOpponentWantsRematch();
+                if (runner.IsServer) CheckRematch();
+            }
         }
+    }
+
+    // ==========================================
+    // --- REMATCH ---
+    // ==========================================
+
+    // Called by the result screen's REMATCH button. Both players must press it; single player restarts at once.
+    public void RequestRematch()
+    {
+        if (_runner == null || !_runner.IsRunning) return;
+        _localRematch = true;
+
+        if (_isSinglePlayer)
+        {
+            StartRematch();
+            return;
+        }
+
+        byte[] message = { MsgRematch };
+        if (_runner.IsServer)
+        {
+            foreach (var p in _runner.ActivePlayers)
+            {
+                if (p != _runner.LocalPlayer) _runner.SendReliableDataToPlayer(p, ReliableKey.FromInts(3), message);
+            }
+            CheckRematch();
+        }
+        else
+        {
+            _runner.SendReliableDataToServer(ReliableKey.FromInts(3), message);
+        }
+    }
+
+    private void CheckRematch()
+    {
+        if (_localRematch && _opponentRematch) StartRematch();
+    }
+
+    // Host only: clear the old boards and reload the match scene; OnSceneLoadDone spawns fresh boards
+    private void StartRematch()
+    {
+        if (!_runner.IsServer) return;
+        _localRematch = _opponentRematch = false;
+
+        foreach (TetrisEngine board in FindObjectsByType<TetrisEngine>(FindObjectsSortMode.None))
+        {
+            if (board.Object != null && board.Object.IsValid) _runner.Despawn(board.Object);
+        }
+        _runner.LoadScene(SceneRef.FromIndex(SceneManager.GetActiveScene().buildIndex));
+    }
+
+    // ==========================================
+    // --- PRIVATE ROOM CODES ---
+    // ==========================================
+
+    private static string NewRoomCode()
+    {
+        var code = new System.Text.StringBuilder();
+        for (int i = 0; i < RoomCodeLength; i++) code.Append(RoomCodeLetters[UnityEngine.Random.Range(0, RoomCodeLetters.Length)]);
+        return code.ToString();
+    }
+
+    // Upper-case letters and digits only, so "abc12 " and "ABC12" reach the same room
+    private static string CleanRoomCode(string code)
+    {
+        var clean = new System.Text.StringBuilder();
+        foreach (char c in (code ?? "").ToUpperInvariant())
+        {
+            if (char.IsLetterOrDigit(c) && clean.Length < 12) clean.Append(c);
+        }
+        return clean.ToString();
+    }
+
+    private string WaitingForOpponentText()
+    {
+        return _roomCode != null
+            ? $"ROOM CODE: <color=yellow>{_roomCode}</color>\nSHARE IT WITH A FRIEND..."
+            : "WAITING FOR OPPONENT TO JOIN...";
+    }
+
+    // ==========================================
+    // --- PLAYER NAMES ---
+    // ==========================================
+
+    private string LocalPlayerName() => CleanName(PlayerPrefs.GetString("PlayerName", ""));
+
+    // Short, and no rich-text tags (a name like "<size=500>" would break the lobby layout)
+    private static string CleanName(string name)
+    {
+        name = (name ?? "").Replace("<", "").Replace(">", "").Trim();
+        if (name.Length > MaxNameLength) name = name.Substring(0, MaxNameLength);
+        return name.Length > 0 ? name : "Player";
+    }
+
+    // Tells the opponent our name once per opponent (host -> client directly, client -> host via the server)
+    private void SendMyName()
+    {
+        if (_sentName || _runner == null || !_runner.IsRunning || _isSinglePlayer) return;
+
+        byte[] nameBytes = System.Text.Encoding.UTF8.GetBytes(LocalPlayerName());
+        byte[] payload = new byte[nameBytes.Length + 1];
+        payload[0] = MsgName;
+        Buffer.BlockCopy(nameBytes, 0, payload, 1, nameBytes.Length);
+
+        bool sent = false;
+        if (_runner.IsServer)
+        {
+            foreach (var p in _runner.ActivePlayers)
+            {
+                if (p == _runner.LocalPlayer) continue;
+                _runner.SendReliableDataToPlayer(p, ReliableKey.FromInts(2), payload);
+                sent = true;
+            }
+        }
+        else
+        {
+            _runner.SendReliableDataToServer(ReliableKey.FromInts(2), payload);
+            sent = true;
+        }
+        _sentName = sent;
+    }
+
+    private TextMeshProUGUI FindLobbyText(string objectName)
+    {
+        if (matchLobbyPanel == null) return null;
+        foreach (TextMeshProUGUI text in matchLobbyPanel.GetComponentsInChildren<TextMeshProUGUI>(true))
+        {
+            if (text.name == objectName) return text;
+        }
+        return null;
     }
 
     private void CheckBothReady()
@@ -405,6 +616,7 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
 
     public void OnSceneLoadDone(NetworkRunner runner)
     {
+        _localRematch = _opponentRematch = false; // A new match (or rematch) starts clean
         if (!runner.IsServer) return;
 
         // FindSpawnPoint also finds inactive markers (SinglePlayerScene's SpawnPoint Opp is inactive)
@@ -431,7 +643,8 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         }
 
         // Single player: the NPC gets its own board in the opponent's spot
-        NPCAI npc = _isSinglePlayer ? FindFirstObjectByType<NPCAI>() : null;
+        // (Sprint / Ultra are played alone: no AI board)
+        NPCAI npc = _isSinglePlayer && !GameModeSettings.IsSolo ? FindFirstObjectByType<NPCAI>() : null;
         if (npc != null && npc.PlaysOwnBoard && !AIBoardExists())
         {
             Vector3 aiPos = p2Spawn != null ? p2Spawn.position : new Vector3(5, 0, 0);
@@ -445,13 +658,22 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
 
     public void OnShutdown(NetworkRunner runner, ShutdownReason reason)
     {
-        // We lost the connection (e.g. the host left) while our result screen is up:
-        // stay on it and let the player press Return, which calls LeaveSession
-        bool resultScreenShowing = GameOverManager.Instance != null && GameOverManager.Instance.IsShowing;
-        if (reason != ShutdownReason.Ok && resultScreenShowing) return;
+        // The session ended under us in a match (the host left or the connection dropped):
+        // say so on the result screen and let the player press Return, which calls LeaveSession
+        if (reason != ShutdownReason.Ok && GameOverManager.Instance != null)
+        {
+            GameOverManager.Instance.OnConnectionLost();
+            return;
+        }
 
         // A failed connection in the lobby is shown for a moment before leaving
         bool inLobby = SceneManager.GetActiveScene().buildIndex == MenuSceneBuildIndex;
+        if (inLobby && reason != ShutdownReason.Ok && lobbyStatusText)
+        {
+            lobbyStatusText.text = _countdownStarted || _isOpponentReady || _sentName
+                ? "<color=#FF8080>THE HOST LEFT THE LOBBY</color>"
+                : $"<color=#FF8080>CONNECTION LOST ({reason})</color>";
+        }
         ReturnToMenu(inLobby && reason != ShutdownReason.Ok ? 3f : 0f);
     }
 

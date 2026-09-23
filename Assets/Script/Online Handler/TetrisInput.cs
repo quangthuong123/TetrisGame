@@ -4,7 +4,9 @@ public struct TetrisInput : INetworkInput
 {
     public NetworkBool LeftHeld;
     public NetworkBool RightHeld;
-    public NetworkBool UpPressed;
+    public NetworkBool UpPressed;          // Rotate clockwise
+    public NetworkBool RotateCCWPressed;   // Rotate counter-clockwise
+    public NetworkBool Rotate180Pressed;
     public NetworkBool DownHeld;
     public NetworkBool SpacePressed;
 

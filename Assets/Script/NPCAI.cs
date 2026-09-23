@@ -69,6 +69,8 @@ public class NPCAI : MonoBehaviour
 
     void Start()
     {
+        // Sprint / Ultra are solo: no opponent, no attacks
+        if (GameModeSettings.IsSolo) return;
         if (mode == Mode.TimedAttacks) StartCoroutine(AttackLoop());
     }
 
