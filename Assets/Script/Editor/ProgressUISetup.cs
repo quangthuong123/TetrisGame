@@ -222,23 +222,23 @@ public static class ProgressUISetup
 
         RectTransform card = NewUI("PauseCard", dim);
         card.anchorMin = card.anchorMax = card.pivot = new Vector2(0.5f, 0.5f);
-        card.sizeDelta = new Vector2(640f, 600f);
+        card.sizeDelta = new Vector2(560f, 520f);
         Image cardImage = card.gameObject.AddComponent<Image>();
         cardImage.sprite = AssetDatabase.LoadAssetAtPath<Sprite>(PanelSprite);
         cardImage.type = Image.Type.Sliced;
         cardImage.color = cardImage.sprite != null ? Color.white : CardColor;
         VerticalLayoutGroup layout = card.gameObject.AddComponent<VerticalLayoutGroup>();
-        layout.padding = new RectOffset(60, 60, 40, 40);
+        layout.padding = new RectOffset(40, 40, 30, 30);
         layout.spacing = 18;
         layout.childAlignment = TextAnchor.MiddleCenter;
         layout.childControlWidth = layout.childControlHeight = false;
         layout.childForceExpandWidth = layout.childForceExpandHeight = false;
 
-        TextMeshProUGUI title = NewText("Title", card, "PAUSED", 64, Color.white, TextAlignmentOptions.Center);
+        TextMeshProUGUI title = NewText("Title", card, "PAUSED", 60, Color.white, TextAlignmentOptions.Center);
         title.rectTransform.sizeDelta = new Vector2(520f, 80f);
-        pause.resumeButton = MenuButton("Btn_Resume", card, "RESUME", Vector2.zero, new Vector2(440f, 100f), ButtonSkin.Purple, null);
-        pause.saveQuitButton = MenuButton("Btn_SaveQuit", card, "SAVE & QUIT", Vector2.zero, new Vector2(440f, 100f), ButtonSkin.Blue, null);
-        pause.quitButton = MenuButton("Btn_Quit", card, "QUIT (NO SAVE)", Vector2.zero, new Vector2(440f, 100f), ButtonSkin.Blue, null);
+        pause.resumeButton = MenuButton("Btn_Resume", card, "RESUME", Vector2.zero, new Vector2(400f, 84f), ButtonSkin.Purple, null);
+        pause.saveQuitButton = MenuButton("Btn_SaveQuit", card, "SAVE & QUIT", Vector2.zero, new Vector2(400f, 84f), ButtonSkin.Blue, null);
+        pause.quitButton = MenuButton("Btn_Quit", card, "QUIT (NO SAVE)", Vector2.zero, new Vector2(400f, 84f), ButtonSkin.Blue, null);
         pause.quitLabel = pause.quitButton.GetComponentInChildren<TMP_Text>(true);
         TextMeshProUGUI hint = NewText("Hint", card, "Game paused  ·  Esc to resume", 24, LightBlue, TextAlignmentOptions.Center);
         hint.rectTransform.sizeDelta = new Vector2(520f, 40f);
