@@ -400,6 +400,14 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         // 2. Handle Connection Failures gracefully
         var result = await _runner.StartGame(startGameArgs);
 
+        if (result.Ok && !_isSinglePlayer && _runner != null && _runner.SessionInfo != null)
+        {
+            // Two players only meet if they're in the same region, so make it visible
+            var info = _runner.SessionInfo;
+            Debug.Log($"[Matchmaking] {(_runner.IsServer ? "Hosting" : "Joined")} room '{info.Name}' in region '{info.Region}' " +
+                      $"({info.PlayerCount}/{info.MaxPlayers} players, visible: {info.IsVisible})");
+        }
+
         if (!result.Ok)
         {
             Debug.LogError($"Matchmaking Failed: {result.ShutdownReason}");
@@ -628,9 +636,11 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
 
     private string WaitingForOpponentText()
     {
-        return _roomCode != null
+        string text = _roomCode != null
             ? $"ROOM CODE: <color=yellow>{_roomCode}</color>\nSHARE IT WITH A FRIEND..."
             : "WAITING FOR OPPONENT TO JOIN...";
+        string region = _runner != null && _runner.SessionInfo != null ? _runner.SessionInfo.Region : null;
+        return string.IsNullOrEmpty(region) ? text : $"{text}\n<size=55%><color=#9FCBFF>Server region: {region}</color></size>";
     }
 
     // ==========================================
