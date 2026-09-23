@@ -10,6 +10,9 @@ public class GameOverManager : MonoBehaviour
 
     // The local player's latest score, kept so the result screen can still show it if the connection drops
     public static int LastKnownScore;
+    public static MatchSummary LastKnownSummary;
+    // XP earned by the match that just ended (set by TetrisEngine right before the result screen)
+    public static XpResult? LastXp;
 
     [Header("UI Elements")]
     public GameObject gameOverPanel;
@@ -23,6 +26,8 @@ public class GameOverManager : MonoBehaviour
     public Button rematchButton;
     [Tooltip("World top 10 for Sprint / Ultra (found as LeaderboardText if empty)")]
     public TextMeshProUGUI leaderboardText;
+    [Tooltip("XP earned and level progress (found as XpText if empty)")]
+    public TextMeshProUGUI xpText;
 
     private bool _opponentLeft;
     private bool _rematchRequested;
@@ -40,6 +45,7 @@ public class GameOverManager : MonoBehaviour
             if (highScoreText == null) highScoreText = FindText("HighScoreText");
             if (noteText == null) noteText = FindText("NoteText");
             if (leaderboardText == null) leaderboardText = FindText("LeaderboardText");
+            if (xpText == null) xpText = FindText("XpText");
             if (leaderboardText != null) leaderboardText.transform.parent.gameObject.SetActive(GameModeSettings.IsSolo);
             if (rematchButton == null)
             {
@@ -105,6 +111,8 @@ public class GameOverManager : MonoBehaviour
             SetRematchAvailable(!_rematchRequested);
         }
 
+        ShowXp();
+
         // 5. Sound
         if (isVersusMatch) AudioManager.Play(isWinner ? Sfx.Win : Sfx.Lose);
         else AudioManager.Play(Sfx.GameOver);
@@ -149,9 +157,29 @@ public class GameOverManager : MonoBehaviour
             SubmitToLeaderboard(OnlineLeaderboard.UltraBoard, score);
         }
 
+        ShowXp();
+
         if (completed || mode == MatchMode.Ultra) AudioManager.Play(Sfx.Win);
         else AudioManager.Play(Sfx.GameOver);
         if (newBest) AudioManager.Play(Sfx.NewHighScore);
+    }
+
+    // "+85 XP  ·  LEVEL 7 ROOKIE (65%)" or "LEVEL UP!"
+    private void ShowXp()
+    {
+        if (LastXp == null) return;
+        XpResult xp = LastXp.Value;
+        LastXp = null;
+
+        PlayerProfile p = ProfileStore.Profile;
+        string line = xp.LeveledUp
+            ? $"<color=yellow>+{xp.gained} XP  ·  LEVEL UP! LEVEL {p.level} {ProfileStore.RankTitle(p.level).ToUpper()}</color>"
+            : $"<color=#9FCBFF>+{xp.gained} XP  ·  LEVEL {p.level} {ProfileStore.RankTitle(p.level).ToUpper()} ({Mathf.RoundToInt(ProfileStore.LevelProgress * 100)}%)</color>";
+
+        if (xpText != null) xpText.text = line;
+        else if (highScoreText != null) highScoreText.text += "\n<size=70%>" + line + "</size>";
+
+        if (xp.LeveledUp) AudioManager.Play(Sfx.NewHighScore);
     }
 
     private void SetTexts(string result, string score, string best)
@@ -211,6 +239,10 @@ public class GameOverManager : MonoBehaviour
         _opponentLeft = true;
         if (!IsShowing)
         {
+            // The match never reached a result: still count what was played
+            MatchSummary summary = LastKnownSummary;
+            summary.outcome = MatchOutcome.Ended;
+            LastXp = ProfileStore.RecordMatch(summary);
             TriggerGameOver(LastKnownScore, false, false);
             if (resultText != null) resultText.text = "<color=yellow>MATCH ENDED</color>";
         }

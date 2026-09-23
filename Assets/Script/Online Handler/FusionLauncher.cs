@@ -47,6 +47,12 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     [Tooltip("Opponent's name in the lobby (found automatically as P2_Name_text if empty)")]
     public TextMeshProUGUI p2NameText;
 
+    [Header("Progress")]
+    [Tooltip("PROFILE screen (found automatically as ProfilePanel if empty)")]
+    public GameObject profilePanel;
+    [Tooltip("CONTINUE a saved single player game (found automatically as Btn_Continue if empty)")]
+    public Button continueButton;
+
     [Header("Private Rooms")]
     [Tooltip("Room code box on the mode select panel (found automatically as RoomCode_Input if empty)")]
     public TMP_InputField roomCodeInput;
@@ -87,6 +93,17 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
             }
         }
         if (menuHighScoreText != null) menuHighScoreText.text = "HIGH SCORE: " + GameOverManager.SavedHighScore;
+        if (mainMenuPanel != null)
+        {
+            Transform menuRoot = mainMenuPanel.transform.parent;
+            foreach (Transform t in menuRoot.GetComponentsInChildren<Transform>(true))
+            {
+                if (profilePanel == null && t.name == "ProfilePanel") profilePanel = t.gameObject;
+                if (continueButton == null && t.name == "Btn_Continue") continueButton = t.GetComponent<Button>();
+            }
+        }
+        if (profilePanel) profilePanel.SetActive(false);
+        RefreshContinueButton();
 
         if (volumeSlider != null) volumeSlider.value = GameSettings.MasterVolume;
 
@@ -155,7 +172,31 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         if (volumeSlider != null) GameSettings.SetMasterVolume(volumeSlider.value);
     }
 
-    public void Button_OpenModeSelect() { SavePlayerName(); mainMenuPanel.SetActive(false); modeSelectPanel.SetActive(true); }
+    public void Button_OpenModeSelect() { SavePlayerName(); mainMenuPanel.SetActive(false); modeSelectPanel.SetActive(true); RefreshContinueButton(); }
+
+    public void Button_OpenProfile()
+    {
+        SavePlayerName();
+        if (profilePanel == null) return;
+        mainMenuPanel.SetActive(false);
+        profilePanel.SetActive(true);
+    }
+
+    public void Button_CloseProfile()
+    {
+        if (profilePanel) profilePanel.SetActive(false);
+        if (mainMenuPanel) mainMenuPanel.SetActive(true);
+    }
+
+    // CONTINUE only shows when there's a saved game, with what and when
+    private void RefreshContinueButton()
+    {
+        if (continueButton == null) return;
+        ResumeData data = ResumeStore.HasSave ? ResumeStore.Load() : null;
+        continueButton.gameObject.SetActive(data != null && data.player != null);
+        TMP_Text label = continueButton.GetComponentInChildren<TMP_Text>(true);
+        if (label != null && data != null) label.text = "CONTINUE\n<size=60%>" + ResumeStore.Describe(data) + "</size>";
+    }
     public void Button_OpenSettings() { mainMenuPanel.SetActive(false); settingsPanel.SetActive(true); }
     public void Button_CloseSettings() { settingsPanel.SetActive(false); mainMenuPanel.SetActive(true); }
     public void Button_BackToMain() { modeSelectPanel.SetActive(false); matchLobbyPanel.SetActive(false); mainMenuPanel.SetActive(true); }
@@ -203,8 +244,30 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     // Single player against the AI
     public void Button_SinglePlayer() => StartSolo(MatchMode.Versus);
 
-    private void StartSolo(MatchMode mode)
+    // Picks up the single player game saved with SAVE & QUIT (or by closing the window mid-game)
+    public void Button_Continue()
     {
+        ResumeData data = ResumeStore.Load();
+        if (data == null || data.player == null)
+        {
+            RefreshContinueButton();
+            return;
+        }
+        GameSettings.AIDifficulty = data.aiDifficulty; // The AI plays at the level it was saved with
+        ResumeStore.Pending = data;
+        StartSolo(data.mode, resuming: true);
+    }
+
+    public bool IsSinglePlayer => _isSinglePlayer;
+
+    private void StartSolo(MatchMode mode, bool resuming = false)
+    {
+        // Starting a new game replaces the saved one
+        if (!resuming)
+        {
+            ResumeStore.Pending = null;
+            ResumeStore.Delete();
+        }
         GameModeSettings.Current = mode;
         _isSinglePlayer = true;
         modeSelectPanel.SetActive(false);
@@ -234,7 +297,7 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         _countdownStarted = false;
         _sentName = false;
 
-        if (p1NameText) p1NameText.text = LocalPlayerName();
+        if (p1NameText) p1NameText.text = NameWithLevel(LocalPlayerName(), ProfileStore.Profile.level);
         if (p2NameText) p2NameText.text = "<color=grey>Searching...</color>";
         if (countdownText) countdownText.text = "";
         if (p1StatusText) p1StatusText.text = "<color=grey>Connecting...</color>";
@@ -421,8 +484,11 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
             // A '3' carries the opponent's name
             else if (data[0] == MsgName)
             {
-                string opponentName = CleanName(System.Text.Encoding.UTF8.GetString(data.Array, data.Offset + 1, data.Count - 1));
-                if (p2NameText) p2NameText.text = opponentName;
+                // "name<US>level" (older builds send just the name)
+                string[] parts = System.Text.Encoding.UTF8.GetString(data.Array, data.Offset + 1, data.Count - 1).Split(NameLevelSeparator);
+                string opponentName = CleanName(parts[0]);
+                int opponentLevel = parts.Length > 1 && int.TryParse(parts[1], out int lvl) ? Mathf.Clamp(lvl, 1, 999) : 0;
+                if (p2NameText) p2NameText.text = NameWithLevel(opponentName, opponentLevel);
                 SendMyName(); // Answer with ours if we haven't yet
             }
             // A '4' means the other player pressed REMATCH
@@ -519,6 +585,11 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
 
     private string LocalPlayerName() => CleanName(PlayerPrefs.GetString("PlayerName", ""));
 
+    private const char NameLevelSeparator = '\u001F'; // "Unit separator": can't be typed into a name
+
+    private static string NameWithLevel(string name, int level) =>
+        level > 0 ? $"{name}\n<size=55%><color=#9FCBFF>Lv.{level}  ·  {ProfileStore.RankTitle(level)}</color></size>" : name;
+
     // Short, and no rich-text tags (a name like "<size=500>" would break the lobby layout)
     private static string CleanName(string name)
     {
@@ -532,7 +603,7 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (_sentName || _runner == null || !_runner.IsRunning || _isSinglePlayer) return;
 
-        byte[] nameBytes = System.Text.Encoding.UTF8.GetBytes(LocalPlayerName());
+        byte[] nameBytes = System.Text.Encoding.UTF8.GetBytes(LocalPlayerName() + NameLevelSeparator + ProfileStore.Profile.level);
         byte[] payload = new byte[nameBytes.Length + 1];
         payload[0] = MsgName;
         Buffer.BlockCopy(nameBytes, 0, payload, 1, nameBytes.Length);
@@ -628,6 +699,8 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
             : TetrisEngine.FindSpawnPoint(false);
 
         int playersSpawned = 0;
+        TetrisEngine localBoard = null;
+        TetrisEngine aiEngine = null;
         foreach (var player in runner.ActivePlayers)
         {
             Vector3 spawnPos = playersSpawned == 0 && p1Spawn != null
@@ -638,7 +711,8 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
                         ? new Vector3(-15, 0, 0)
                         : new Vector3(5, 0, 0);
 
-            runner.Spawn(playerBoardPrefab, spawnPos, Quaternion.identity, player);
+            NetworkObject board = runner.Spawn(playerBoardPrefab, spawnPos, Quaternion.identity, player);
+            if (player == runner.LocalPlayer && board != null) localBoard = board.GetComponent<TetrisEngine>();
             playersSpawned++;
         }
 
@@ -649,7 +723,17 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         {
             Vector3 aiPos = p2Spawn != null ? p2Spawn.position : new Vector3(5, 0, 0);
             NetworkObject aiBoard = runner.Spawn(playerBoardPrefab, aiPos, Quaternion.identity, PlayerRef.None);
-            aiBoard.GetComponent<TetrisEngine>().aiController = npc;
+            aiEngine = aiBoard.GetComponent<TetrisEngine>();
+            aiEngine.aiController = npc;
+        }
+
+        // CONTINUE: put the saved boards back (they count down 3 seconds, then play resumes)
+        if (_isSinglePlayer && ResumeStore.Pending != null)
+        {
+            ResumeData resume = ResumeStore.Pending;
+            ResumeStore.Pending = null;
+            if (localBoard != null) localBoard.RestoreSnapshot(resume.player);
+            if (aiEngine != null && resume.ai != null) aiEngine.RestoreSnapshot(resume.ai);
         }
 
         Debug.Log($"FusionLauncher spawned {playersSpawned} player board(s).");

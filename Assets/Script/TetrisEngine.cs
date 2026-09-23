@@ -61,6 +61,15 @@ public class TetrisEngine : NetworkBehaviour
     [Networked] public int ClearEventCount { get; set; }    // Bumps on each notable clear (for the callout text)
     [Networked] public int ClearEventCode { get; set; }     // Packed details of that clear (see PackClear)
 
+    // --- Stats for the player profile ---
+    [Networked] public int PiecesPlaced { get; set; }
+    [Networked] public int QuadCount { get; set; }
+    [Networked] public int TSpinCount { get; set; }
+    [Networked] public int TSpinMiniCount { get; set; }
+    [Networked] public int AllClearCount { get; set; }
+    [Networked] public int BestCombo { get; set; }
+    [Networked] public float ElapsedTime { get; set; } // Seconds of play (not counting the start countdown or pauses)
+
     // --- Solo modes (Sprint / Ultra) ---
     [Networked] public float ModeTime { get; set; }         // Seconds since the pieces started falling
     [Networked] public NetworkBool ModeCompleted { get; set; } // Reached the goal (40 lines / the 2 minutes ran out)
@@ -124,7 +133,8 @@ public class TetrisEngine : NetworkBehaviour
     public float startDelaySeconds = 3f;
 
     // Seconds left before the match starts (0 once it has started)
-    public float StartCountdown => IsInitialized ? 0f : (StartDelay.RemainingTime(Runner) ?? 0f);
+    // (Also used after resuming a saved game, so it doesn't depend on IsInitialized)
+    public float StartCountdown => StartDelay.ExpiredOrNotRunning(Runner) ? 0f : (StartDelay.RemainingTime(Runner) ?? 0f);
 
     [Header("Game Speeds")]
     public float baseFallSpeed = 0.8f;
@@ -219,7 +229,10 @@ public class TetrisEngine : NetworkBehaviour
     public override void FixedUpdateNetwork()
     {
         if (IsGameOver) return;
-        if (!IsInitialized && !StartDelay.ExpiredOrNotRunning(Runner)) return;
+        if (!StartDelay.ExpiredOrNotRunning(Runner)) return; // Start (or resume) countdown
+        if (PauseMenu.IsPaused && Runner.GameMode == GameMode.Single) return; // Only single player can pause
+
+        if (HasStateAuthority && IsInitialized) ElapsedTime += Runner.DeltaTime;
 
         if (HasStateAuthority && !IsInitialized)
         {
@@ -688,6 +701,7 @@ public class TetrisEngine : NetworkBehaviour
         CanHold = true;
         LockTimer = 0f;
         SfxLocks++;
+        PiecesPlaced++;
         int linesCleared = CheckForLines();
         int attack = ScoreClear(linesCleared, tSpin);
 
@@ -784,6 +798,13 @@ public class TetrisEngine : NetworkBehaviour
             attack += ComboAttack[Mathf.Clamp(Combo, 0, ComboAttack.Length - 1)];
             if (allClear) attack += AllClearAttack;
         }
+
+        // Profile stats
+        if (lines == 4) QuadCount++;
+        if (tSpin == 2) TSpinCount++;
+        else if (tSpin == 1) TSpinMiniCount++;
+        if (allClear) AllClearCount++;
+        if (lines > 0) BestCombo = Mathf.Max(BestCombo, Combo);
 
         // Callout text on the board ("T-SPIN DOUBLE", "BACK-TO-BACK", "3 COMBO", "ALL CLEAR!")
         ClearEventCode = PackClear(lines, tSpin, backToBackBonus, lines > 0 ? Combo : -1, allClear);
@@ -1038,6 +1059,7 @@ public class TetrisEngine : NetworkBehaviour
         {
             PlayBoardSounds();
             GameOverManager.LastKnownScore = Score; // Still shown if the connection drops mid-match
+            if (!IsGameOver) GameOverManager.LastKnownSummary = BuildSummary(); // Recorded if the connection drops
         }
 
         UpdateClearCallout();
@@ -1195,6 +1217,11 @@ public class TetrisEngine : NetworkBehaviour
             {
                 hasSavedScore = true;
 
+                // Progress: stats + XP go into the local profile; a finished game can't be resumed
+                XpResult xp = ProfileStore.RecordMatch(BuildSummary());
+                GameOverManager.LastXp = xp;
+                if (Runner.GameMode == GameMode.Single) ResumeStore.Delete();
+
                 // Call the Scene's UI Manager via the Singleton!
                 if (GameOverManager.Instance != null)
                 {
@@ -1210,6 +1237,93 @@ public class TetrisEngine : NetworkBehaviour
                 }
             }
         }
+    }
+
+    // ==========================================
+    // --- PROGRESS: MATCH SUMMARY & SAVE / RESUME ---
+    // ==========================================
+    public MatchSummary BuildSummary()
+    {
+        bool singlePlayer = Runner != null && Runner.GameMode == GameMode.Single;
+        MatchOutcome outcome;
+        if (GameModeSettings.IsSolo) outcome = ModeCompleted ? MatchOutcome.Completed : MatchOutcome.Failed;
+        else if (FindOpponent() == null) outcome = MatchOutcome.Ended; // Classic timed-attack NPC: no board to beat
+        else outcome = IsWinner ? MatchOutcome.Win : MatchOutcome.Loss;
+
+        return new MatchSummary
+        {
+            mode = GameModeSettings.Current,
+            vsAI = singlePlayer && !GameModeSettings.IsSolo,
+            outcome = outcome,
+            score = Score,
+            lines = LinesCleared,
+            pieces = PiecesPlaced,
+            quads = QuadCount,
+            tSpins = TSpinCount,
+            tSpinMinis = TSpinMiniCount,
+            allClears = AllClearCount,
+            bestCombo = BestCombo,
+            seconds = ElapsedTime,
+        };
+    }
+
+    // Host only: everything needed to rebuild this board later
+    public BoardSnapshot CaptureSnapshot()
+    {
+        var s = new BoardSnapshot
+        {
+            grid = new int[Width * Height],
+            pieceId = CurrentPieceID,
+            pieceRotation = currentPiece != null ? currentPiece.Rotation : 0,
+            pieceX = currentPiece != null ? currentPiece.Position.x : 0,
+            pieceY = currentPiece != null ? currentPiece.Position.y : 0,
+            holdId = HoldPieceID,
+            canHold = CanHold,
+            nextId = NextPieceID,
+            forcedNext = ForcedNextPiece,
+            bag = new int[7],
+            bagIndex = BagIndex,
+            score = Score, skillPoints = SkillPoints, lines = LinesCleared,
+            combo = Combo, backToBack = BackToBack, pendingGarbage = PendingGarbage,
+            modeTime = ModeTime, elapsedTime = ElapsedTime, fallSpeed = CurrentFallSpeed,
+            pieces = PiecesPlaced, quads = QuadCount, tSpins = TSpinCount, tSpinMinis = TSpinMiniCount,
+            allClears = AllClearCount, bestCombo = BestCombo,
+        };
+        for (int i = 0; i < s.grid.Length; i++) s.grid[i] = NetworkGrid[i];
+        for (int i = 0; i < 7; i++) s.bag[i] = Bag[i];
+        return s;
+    }
+
+    // Host only: puts a saved board back, then counts down 3 seconds before play continues
+    public void RestoreSnapshot(BoardSnapshot s)
+    {
+        if (!HasStateAuthority || s == null || s.grid == null || s.grid.Length != Width * Height) return;
+
+        for (int i = 0; i < s.grid.Length; i++) NetworkGrid.Set(i, s.grid[i]);
+        if (s.bag != null) for (int i = 0; i < 7 && i < s.bag.Length; i++) Bag.Set(i, s.bag[i]);
+        BagIndex = s.bagIndex;
+        HoldPieceID = s.holdId;
+        CanHold = s.canHold;
+        NextPieceID = s.nextId;
+        ForcedNextPiece = s.forcedNext;
+        Score = s.score; SkillPoints = s.skillPoints; LinesCleared = s.lines;
+        Combo = s.combo; BackToBack = s.backToBack; PendingGarbage = s.pendingGarbage;
+        ModeTime = s.modeTime; ElapsedTime = s.elapsedTime; CurrentFallSpeed = s.fallSpeed;
+        PiecesPlaced = s.pieces; QuadCount = s.quads; TSpinCount = s.tSpins; TSpinMiniCount = s.tSpinMinis;
+        AllClearCount = s.allClears; BestCombo = s.bestCombo;
+
+        // The falling piece, turned back to the way it was facing
+        CurrentPieceID = s.pieceId;
+        int[,] shape = s.pieceId == XPieceID ? TetrominoShapes.X_Shape : TetrominoShapes.AllShapes[Mathf.Clamp(s.pieceId, 1, 7) - 1];
+        int rotation = ((s.pieceRotation % 4) + 4) % 4;
+        for (int r = 0; r < rotation; r++) shape = Tetromino.RotatedClockwise(shape);
+        currentPiece = new Tetromino(shape, new Vector2Int(s.pieceX, s.pieceY), rotation);
+
+        IsInitialized = true; // Don't spawn a fresh first piece
+        OnNewActivePiece();
+        UpdateNetworkPiecePositions();
+        UpdateGhostPositions();
+        StartDelay = TickTimer.CreateFromSeconds(Runner, startDelaySeconds);
     }
 
     // ==========================================
