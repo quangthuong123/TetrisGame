@@ -1,0 +1,78 @@
+using Fusion;
+using UnityEngine;
+using TMPro;
+
+public class BoardUI : NetworkBehaviour
+{
+    [Header("References")]
+    public TetrisEngine engine;
+    public GameObject uiCanvasObject;
+
+    [Header("Skill Icons & SP")]
+    public TextMeshProUGUI spText;
+
+    // Explicitly using UnityEngine.UI.Image to prevent ambiguity!
+    public UnityEngine.UI.Image skill1Icon;
+    public UnityEngine.UI.Image skill2Icon;
+    public UnityEngine.UI.Image skill3Icon;
+
+    [Header("Incoming Attack Warning")]
+    public GameObject warningPanel;
+    public TextMeshProUGUI warningText;
+
+    [Header("Game Over UI")]
+    public GameObject gameOverPanel;
+
+    [Header("Colors")]
+    public Color affordableColor = Color.white;
+    public Color lockedColor = new Color(0.3f, 0.3f, 0.3f, 0.8f);
+
+    public override void Spawned()
+    {
+        if (engine == null) engine = GetComponentInParent<TetrisEngine>();
+        if (uiCanvasObject == null) uiCanvasObject = gameObject;
+
+        uiCanvasObject.SetActive(HasInputAuthority);
+    }
+
+    public override void Render()
+    {
+        if (engine == null) engine = GetComponentInParent<TetrisEngine>();
+        if (!HasInputAuthority || engine == null) return;
+
+        // 1. Update the SP Number
+        if (spText != null) spText.text = "SP: " + engine.SkillPoints;
+
+        // 2. Light up the Skill Icons based on the 3 Tiers
+        if (skill1Icon != null) skill1Icon.color = engine.SkillPoints >= 200 ? affordableColor : lockedColor;
+        if (skill2Icon != null) skill2Icon.color = engine.SkillPoints >= 600 ? affordableColor : lockedColor;
+        if (skill3Icon != null) skill3Icon.color = engine.SkillPoints >= 1200 ? affordableColor : lockedColor;
+
+        // 3. Show a warning if an attack is queued up!
+        if (warningPanel != null)
+        {
+            if (engine.ForcedNextPiece > 0)
+            {
+                warningPanel.SetActive(true);
+
+                if (warningText != null)
+                {
+                    if (engine.ForcedNextPiece == 99)
+                        warningText.text = "DANGER: X-BLOCK INCOMING!";
+                    else
+                        warningText.text = "WARNING: FORCED PIECE!";
+                }
+            }
+            else
+            {
+                warningPanel.SetActive(false);
+            }
+        }
+
+        // 4. Toggle the Game Over Panel
+        if (gameOverPanel != null)
+        {
+            gameOverPanel.SetActive(engine.IsGameOver);
+        }
+    }
+}
