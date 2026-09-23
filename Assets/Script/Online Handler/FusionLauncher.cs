@@ -28,6 +28,13 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     public GameObject settingsPanel;
     public GameObject modeSelectPanel;
     public GameObject matchLobbyPanel;
+    [Tooltip("SINGLE PLAYER screen: Continue / vs AI / Sprint / Ultra (found as SinglePlayerPanel if empty)")]
+    public GameObject singlePlayerPanel;
+    [Tooltip("MULTIPLAYER screen: Quick Match / room code (found as MultiplayerPanel if empty)")]
+    public GameObject multiplayerPanel;
+
+    // Which screen the menu opens on after returning from a game (PlayerPrefs "TargetMenu")
+    public const int MenuMain = 0, MenuModeSelect = 1, MenuQuickMatch = 2, MenuMultiplayer = 3, MenuSinglePlayer = 4;
 
     [Header("Menu Features")]
     public TMP_InputField nameInputField;
@@ -99,6 +106,9 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
             foreach (Transform t in menuRoot.GetComponentsInChildren<Transform>(true))
             {
                 if (profilePanel == null && t.name == "ProfilePanel") profilePanel = t.gameObject;
+                if (singlePlayerPanel == null && t.name == "SinglePlayerPanel") singlePlayerPanel = t.gameObject;
+                if (multiplayerPanel == null && t.name == "MultiplayerPanel") multiplayerPanel = t.gameObject;
+                if (roomCodeInput == null && t.name == "RoomCode_Input") roomCodeInput = t.GetComponent<TMP_InputField>();
                 if (continueButton == null && t.name == "Btn_Continue") continueButton = t.GetComponent<Button>();
             }
         }
@@ -124,10 +134,15 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         if (settingsPanel) settingsPanel.SetActive(false);
         if (modeSelectPanel) modeSelectPanel.SetActive(false);
         if (matchLobbyPanel) matchLobbyPanel.SetActive(false);
+        if (singlePlayerPanel) singlePlayerPanel.SetActive(false);
+        if (multiplayerPanel) multiplayerPanel.SetActive(false);
 
-        if (targetMenu == 0 && mainMenuPanel) mainMenuPanel.SetActive(true);
-        else if (targetMenu == 1 && modeSelectPanel) modeSelectPanel.SetActive(true);
-        else if (targetMenu == 2) Button_Multiplayer();
+        if (targetMenu == MenuMain && mainMenuPanel) mainMenuPanel.SetActive(true);
+        else if (targetMenu == MenuModeSelect && modeSelectPanel) modeSelectPanel.SetActive(true);
+        else if (targetMenu == MenuQuickMatch) Button_Multiplayer();
+        else if (targetMenu == MenuMultiplayer) Button_OpenMultiplayerMenu();
+        else if (targetMenu == MenuSinglePlayer) Button_OpenSinglePlayerMenu();
+        else if (mainMenuPanel) mainMenuPanel.SetActive(true);
     }
 
     void Update()
@@ -199,7 +214,45 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     }
     public void Button_OpenSettings() { mainMenuPanel.SetActive(false); settingsPanel.SetActive(true); }
     public void Button_CloseSettings() { settingsPanel.SetActive(false); mainMenuPanel.SetActive(true); }
-    public void Button_BackToMain() { modeSelectPanel.SetActive(false); matchLobbyPanel.SetActive(false); mainMenuPanel.SetActive(true); }
+    public void Button_BackToMain()
+    {
+        HideModeMenus();
+        if (matchLobbyPanel) matchLobbyPanel.SetActive(false);
+        if (mainMenuPanel) mainMenuPanel.SetActive(true);
+    }
+
+    // SELECT MODE -> SINGLE PLAYER screen
+    public void Button_OpenSinglePlayerMenu()
+    {
+        if (singlePlayerPanel == null) { Button_SinglePlayer(); return; } // Old layout: go straight to vs AI
+        HideModeMenus();
+        if (mainMenuPanel) mainMenuPanel.SetActive(false);
+        singlePlayerPanel.SetActive(true);
+        RefreshContinueButton();
+    }
+
+    // SELECT MODE -> MULTIPLAYER screen
+    public void Button_OpenMultiplayerMenu()
+    {
+        if (multiplayerPanel == null) { Button_Multiplayer(); return; } // Old layout: go straight to quick match
+        HideModeMenus();
+        if (mainMenuPanel) mainMenuPanel.SetActive(false);
+        multiplayerPanel.SetActive(true);
+    }
+
+    // BACK on the Single Player / Multiplayer screens
+    public void Button_BackToModeSelect()
+    {
+        HideModeMenus();
+        if (modeSelectPanel) modeSelectPanel.SetActive(true);
+    }
+
+    private void HideModeMenus()
+    {
+        if (modeSelectPanel) modeSelectPanel.SetActive(false);
+        if (singlePlayerPanel) singlePlayerPanel.SetActive(false);
+        if (multiplayerPanel) multiplayerPanel.SetActive(false);
+    }
     public void Button_QuitGame() { Application.Quit(); }
 
     // Hook up to a Dropdown's On Value Changed (0 = Easy, 1 = Normal, 2 = Hard, 3 = Insane)
@@ -212,11 +265,12 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (_runner != null && _runner.IsRunning)
         {
-            LeaveSession(1); // Reloads the menu on the mode select panel
+            LeaveSession(multiplayerPanel != null ? MenuMultiplayer : MenuModeSelect); // Reloads the menu there
             return;
         }
         if (matchLobbyPanel) matchLobbyPanel.SetActive(false);
-        if (modeSelectPanel) modeSelectPanel.SetActive(true);
+        if (multiplayerPanel) Button_OpenMultiplayerMenu();
+        else if (modeSelectPanel) modeSelectPanel.SetActive(true);
     }
 
     // Ends the session (if any) and goes back to the menu scene. targetMenu: 0 = main menu, 1 = mode select
@@ -270,7 +324,7 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         }
         GameModeSettings.Current = mode;
         _isSinglePlayer = true;
-        modeSelectPanel.SetActive(false);
+        HideModeMenus();
         StartNetwork(1);
     }
 
@@ -305,7 +359,7 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         if (lobbyStatusText) lobbyStatusText.text = _roomCode != null ? "OPENING ROOM " + _roomCode + "..." : "CONNECTING TO MATCHMAKING SERVER...";
         if (readyButton) readyButton.SetActive(false); // Hidden by default
 
-        modeSelectPanel.SetActive(false);
+        HideModeMenus();
         matchLobbyPanel.SetActive(true);
         StartNetwork(2, _roomCode);
     }

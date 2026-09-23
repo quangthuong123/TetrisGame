@@ -74,7 +74,9 @@ public class PauseMenu : MonoBehaviour
     private void LeaveToMenu()
     {
         IsPaused = false;
-        if (FusionLauncher.SessionOwner != null) FusionLauncher.SessionOwner.LeaveSession(1);
+        // Back to the Single Player screen (where CONTINUE is) or, online, the Multiplayer screen
+        int menu = SinglePlayer ? FusionLauncher.MenuSinglePlayer : FusionLauncher.MenuMultiplayer;
+        if (FusionLauncher.SessionOwner != null) FusionLauncher.SessionOwner.LeaveSession(menu);
         else UnityEngine.SceneManagement.SceneManager.LoadScene(0);
     }
 
