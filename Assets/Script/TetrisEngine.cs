@@ -5,13 +5,19 @@ public class TetrisEngine : NetworkBehaviour
 {
     public const int Width = 10;
     public const int Height = 20;
+    public const int MaxPieceBlocks = 5; // The X attack piece has 5 cells
+    private const int XPieceID = 9;
+    private static readonly Vector2Int Hidden = new Vector2Int(-1000, -1000);
 
     // --- NETWORKED LOGIC DATA ---
     [Networked, Capacity(200)] public NetworkArray<int> NetworkGrid { get; }
-    [Networked, Capacity(4)] public NetworkArray<Vector2Int> ActivePiecePositions { get; }
-    [Networked, Capacity(4)] public NetworkArray<Vector2Int> GhostPiecePositions { get; }
+    [Networked, Capacity(MaxPieceBlocks)] public NetworkArray<Vector2Int> ActivePiecePositions { get; }
+    [Networked, Capacity(MaxPieceBlocks)] public NetworkArray<Vector2Int> GhostPiecePositions { get; }
 
     [Networked] public int SkillPoints { get; set; }
+    [Networked] public int Score { get; set; }        // Never decreases (SkillPoints get spent)
+    [Networked] public int LinesCleared { get; set; }
+    [Networked] public NetworkBool IsWinner { get; set; }
     [Networked] public int CurrentPieceID { get; set; }
     [Networked] public bool IsInitialized { get; set; }
     [Networked] public bool IsGameOver { get; set; }
@@ -55,10 +61,10 @@ public class TetrisEngine : NetworkBehaviour
     private bool hasSavedScore = false;
 
     private Transform[,] visualGrid = new Transform[Width, Height];
-    private Transform[] activeVisualBlocks = new Transform[4];
-    private Transform[] ghostVisualBlocks = new Transform[4];
-    private Transform[] nextVisualBlocks = new Transform[4];
-    private Transform[] holdVisualBlocks = new Transform[4];
+    private Transform[] activeVisualBlocks = new Transform[MaxPieceBlocks];
+    private Transform[] ghostVisualBlocks = new Transform[MaxPieceBlocks];
+    private Transform[] nextVisualBlocks = new Transform[MaxPieceBlocks];
+    private Transform[] holdVisualBlocks = new Transform[MaxPieceBlocks];
 
     private Tetromino currentPiece;
 
@@ -78,7 +84,7 @@ public class TetrisEngine : NetworkBehaviour
         // Cap the maximum speed to exactly 2.5x the original speed
         minimumFallSpeed = baseFallSpeed / 2.5f;
 
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < MaxPieceBlocks; i++)
         {
             activeVisualBlocks[i] = Instantiate(blockPrefab, transform).transform;
             ghostVisualBlocks[i] = Instantiate(ghostPrefab, transform).transform;
@@ -106,38 +112,39 @@ public class TetrisEngine : NetworkBehaviour
             SpawnPiece();
         }
 
+        // Missing input (e.g. a lagging client) must not freeze gravity, so it runs with nothing pressed
         if (GetInput(out TetrisInput input))
         {
             HandleDAS(input);
 
             if (input.SpacePressed) HardDrop();
-            if (input.UpPressed) RotatePiece();
-            if (input.HoldPressed) HoldCurrentPiece();
+            if (!IsGameOver && input.UpPressed) RotatePiece();
+            if (!IsGameOver && input.HoldPressed) HoldCurrentPiece();
             if (input.Skill1Pressed) UseSkill(1);
             if (input.Skill2Pressed) UseSkill(2);
             if (input.Skill3Pressed) UseSkill(3);
+        }
 
-            if (HasStateAuthority)
+        if (HasStateAuthority && !IsGameOver && currentPiece != null)
+        {
+            // Safely decrease speed without dipping below the minimum
+            if (CurrentFallSpeed > minimumFallSpeed)
             {
-                // Safely decrease speed without dipping below the minimum
-                if (CurrentFallSpeed > minimumFallSpeed)
-                {
-                    CurrentFallSpeed = Mathf.Max(minimumFallSpeed, CurrentFallSpeed - (speedDecreasePerSecond * Runner.DeltaTime));
-                }
+                CurrentFallSpeed = Mathf.Max(minimumFallSpeed, CurrentFallSpeed - (speedDecreasePerSecond * Runner.DeltaTime));
+            }
 
-                // Lock Delay (Coyote Time)
-                bool isGrounded = !IsValidPosition(currentPiece.Position + new Vector2Int(0, -1), currentPiece.Shape);
-                if (isGrounded)
-                {
-                    LockTimer += Runner.DeltaTime;
-                    if (LockTimer >= 0.5f) LockPiece();
-                }
-                else
-                {
-                    LockTimer = 0f;
-                    float currentSpeed = input.DownHeld ? softDropSpeed : CurrentFallSpeed;
-                    HandleGravity(currentSpeed);
-                }
+            // Lock Delay (Coyote Time)
+            bool isGrounded = !IsValidPosition(currentPiece.Position + new Vector2Int(0, -1), currentPiece.Shape);
+            if (isGrounded)
+            {
+                LockTimer += Runner.DeltaTime;
+                if (LockTimer >= 0.5f) LockPiece();
+            }
+            else
+            {
+                LockTimer = 0f;
+                float currentSpeed = input.DownHeld ? softDropSpeed : CurrentFallSpeed;
+                HandleGravity(currentSpeed);
             }
         }
     }
@@ -213,7 +220,7 @@ public class TetrisEngine : NetworkBehaviour
             if (ForcedNextPiece == 99)
             {
                 shape = TetrominoShapes.X_Shape;
-                CurrentPieceID = 9;
+                CurrentPieceID = XPieceID;
             }
             else
             {
@@ -234,7 +241,7 @@ public class TetrisEngine : NetworkBehaviour
 
         if (!IsValidPosition(currentPiece.Position, currentPiece.Shape))
         {
-            IsGameOver = true;
+            TopOut();
             return;
         }
 
@@ -242,9 +249,30 @@ public class TetrisEngine : NetworkBehaviour
         UpdateGhostPositions();
     }
 
+    // This board lost. In a versus match, every other board still playing wins.
+    void TopOut()
+    {
+        if (!HasStateAuthority || IsGameOver) return;
+        IsGameOver = true;
+
+        foreach (TetrisEngine board in FindObjectsByType<TetrisEngine>(FindObjectsSortMode.None))
+        {
+            if (board != this && board.Object != null && !board.IsGameOver) board.DeclareWinner();
+        }
+    }
+
+    // Also called by FusionLauncher when the opponent disconnects mid-match
+    public void DeclareWinner()
+    {
+        if (!HasStateAuthority || IsGameOver) return;
+        IsWinner = true;
+        IsGameOver = true;
+    }
+
     void HoldCurrentPiece()
     {
-        if (!HasStateAuthority || !CanHold) return;
+        // The X attack piece can't be held: it isn't in AllShapes, and holding would dodge the attack
+        if (!HasStateAuthority || !CanHold || CurrentPieceID == XPieceID) return;
 
         CanHold = false;
         LockTimer = 0f;
@@ -264,6 +292,12 @@ public class TetrisEngine : NetworkBehaviour
             Vector2Int startPos = new Vector2Int(Width / 2 - shape.GetLength(0) / 2, Height - shape.GetLength(1));
             currentPiece = new Tetromino(shape, startPos);
 
+            if (!IsValidPosition(currentPiece.Position, currentPiece.Shape))
+            {
+                TopOut();
+                return;
+            }
+
             UpdateNetworkPiecePositions();
             UpdateGhostPositions();
         }
@@ -279,7 +313,7 @@ public class TetrisEngine : NetworkBehaviour
         {
             for (int y = 0; y < size; y++)
             {
-                if (currentPiece.Shape[x, y] != 0 && blockIndex < 4)
+                if (currentPiece.Shape[x, y] != 0 && blockIndex < MaxPieceBlocks)
                 {
                     int boardX = currentPiece.Position.x + x;
                     int boardY = currentPiece.Position.y + (size - 1 - y);
@@ -288,6 +322,7 @@ public class TetrisEngine : NetworkBehaviour
                 }
             }
         }
+        for (; blockIndex < MaxPieceBlocks; blockIndex++) ActivePiecePositions.Set(blockIndex, Hidden);
     }
 
     void UpdateGhostPositions()
@@ -306,7 +341,7 @@ public class TetrisEngine : NetworkBehaviour
         {
             for (int y = 0; y < size; y++)
             {
-                if (currentPiece.Shape[x, y] != 0 && blockIndex < 4)
+                if (currentPiece.Shape[x, y] != 0 && blockIndex < MaxPieceBlocks)
                 {
                     int boardX = simulatedPos.x + x;
                     int boardY = simulatedPos.y + (size - 1 - y);
@@ -315,6 +350,7 @@ public class TetrisEngine : NetworkBehaviour
                 }
             }
         }
+        for (; blockIndex < MaxPieceBlocks; blockIndex++) GhostPiecePositions.Set(blockIndex, Hidden);
     }
 
     void HandleGravity(float currentSpeed)
@@ -352,25 +388,36 @@ public class TetrisEngine : NetworkBehaviour
         return false;
     }
 
+    // Offsets tried in order when a rotation is blocked by a wall, the floor or the stack
+    private static readonly Vector2Int[] WallKicks =
+    {
+        new Vector2Int(0, 0), new Vector2Int(-1, 0), new Vector2Int(1, 0),
+        new Vector2Int(0, 1), new Vector2Int(-2, 0), new Vector2Int(2, 0)
+    };
+
     void RotatePiece()
     {
         if (currentPiece == null) return;
         int[,] oldShape = (int[,])currentPiece.Shape.Clone();
+        Vector2Int oldPos = currentPiece.Position;
         currentPiece.Rotate();
 
-        if (IsValidPosition(currentPiece.Position, currentPiece.Shape))
+        foreach (Vector2Int kick in WallKicks)
         {
-            if (HasStateAuthority)
+            if (IsValidPosition(oldPos + kick, currentPiece.Shape))
             {
-                LockTimer = 0f;
-                UpdateNetworkPiecePositions();
-                UpdateGhostPositions();
+                currentPiece.Position = oldPos + kick;
+                if (HasStateAuthority)
+                {
+                    LockTimer = 0f;
+                    UpdateNetworkPiecePositions();
+                    UpdateGhostPositions();
+                }
+                return;
             }
         }
-        else
-        {
-            currentPiece = new Tetromino(oldShape, currentPiece.Position);
-        }
+
+        currentPiece = new Tetromino(oldShape, oldPos);
     }
 
     bool IsValidPosition(Vector2Int targetPos, int[,] shape)
@@ -393,8 +440,9 @@ public class TetrisEngine : NetworkBehaviour
 
     void LockPiece()
     {
-        if (!HasStateAuthority) return;
+        if (!HasStateAuthority || currentPiece == null || IsGameOver) return;
         int size = currentPiece.Shape.GetLength(0);
+        bool lockedAboveBoard = false;
 
         for (int x = 0; x < size; x++)
         {
@@ -408,6 +456,7 @@ public class TetrisEngine : NetworkBehaviour
                         int boardX = currentPiece.Position.x + x;
                         NetworkGrid.Set(boardY * Width + boardX, CurrentPieceID);
                     }
+                    else lockedAboveBoard = true;
                 }
             }
         }
@@ -415,6 +464,13 @@ public class TetrisEngine : NetworkBehaviour
         CanHold = true;
         LockTimer = 0f;
         CheckForLines();
+
+        // Lock out: part of the piece locked above the visible board
+        if (lockedAboveBoard)
+        {
+            TopOut();
+            return;
+        }
         SpawnPiece();
     }
 
@@ -440,6 +496,8 @@ public class TetrisEngine : NetworkBehaviour
             else if (linesCleared == 4) spReward = 1200;
 
             SkillPoints += spReward;
+            Score += spReward;
+            LinesCleared += linesCleared;
         }
     }
 
@@ -540,7 +598,7 @@ public class TetrisEngine : NetworkBehaviour
         }
 
         // 1. Draw Active Falling Piece
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < MaxPieceBlocks; i++)
         {
             if (activeVisualBlocks[i] != null)
             {
@@ -583,7 +641,7 @@ public class TetrisEngine : NetworkBehaviour
             Color ghostColor = currentPieceColor;
             ghostColor.a = 0.4f;
 
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < MaxPieceBlocks; i++)
             {
                 if (ghostVisualBlocks[i] != null)
                 {
@@ -595,15 +653,15 @@ public class TetrisEngine : NetworkBehaviour
         }
         else
         {
-            for (int i = 0; i < 4; i++) if (ghostVisualBlocks[i] != null) ghostVisualBlocks[i].position = new Vector3(-1000, -1000, 0);
+            for (int i = 0; i < MaxPieceBlocks; i++) if (ghostVisualBlocks[i] != null) ghostVisualBlocks[i].position = new Vector3(-1000, -1000, 0);
         }
 
         // 4. Draw NEXT PIECE Shape 
-        int targetPieceToDisplay = ForcedNextPiece > 0 ? (ForcedNextPiece == 99 ? 9 : ForcedNextPiece) : NextPieceID;
+        int targetPieceToDisplay = ForcedNextPiece > 0 ? (ForcedNextPiece == 99 ? XPieceID : ForcedNextPiece) : NextPieceID;
 
         if (HasInputAuthority && nextPieceAnchor != null && targetPieceToDisplay > 0)
         {
-            int[,] nextShape = (targetPieceToDisplay == 9) ? TetrominoShapes.X_Shape : TetrominoShapes.AllShapes[targetPieceToDisplay - 1];
+            int[,] nextShape = (targetPieceToDisplay == XPieceID) ? TetrominoShapes.X_Shape : TetrominoShapes.AllShapes[targetPieceToDisplay - 1];
             Color nextColor = blockColors[targetPieceToDisplay];
             int size = nextShape.GetLength(0);
             int blockIndex = 0;
@@ -612,7 +670,7 @@ public class TetrisEngine : NetworkBehaviour
             {
                 for (int y = 0; y < size; y++)
                 {
-                    if (nextShape[x, y] != 0 && blockIndex < 4)
+                    if (nextShape[x, y] != 0 && blockIndex < MaxPieceBlocks)
                     {
                         float offsetX = x - (size / 2f) + 0.5f;
                         float offsetY = (size - 1 - y) - (size / 2f) + 0.5f;
@@ -625,10 +683,12 @@ public class TetrisEngine : NetworkBehaviour
                     }
                 }
             }
+            // A 4-cell piece after a 5-cell X leaves one stale preview block
+            for (; blockIndex < MaxPieceBlocks; blockIndex++) if (nextVisualBlocks[blockIndex] != null) nextVisualBlocks[blockIndex].position = new Vector3(-1000, -1000, 0);
         }
         else
         {
-            for (int i = 0; i < 4; i++) if (nextVisualBlocks[i] != null) nextVisualBlocks[i].position = new Vector3(-1000, -1000, 0);
+            for (int i = 0; i < MaxPieceBlocks; i++) if (nextVisualBlocks[i] != null) nextVisualBlocks[i].position = new Vector3(-1000, -1000, 0);
         }
 
         // 5. Draw HOLD PIECE Shape 
@@ -643,7 +703,7 @@ public class TetrisEngine : NetworkBehaviour
             {
                 for (int y = 0; y < size; y++)
                 {
-                    if (holdShape[x, y] != 0 && blockIndex < 4)
+                    if (holdShape[x, y] != 0 && blockIndex < MaxPieceBlocks)
                     {
                         float offsetX = x - (size / 2f) + 0.5f;
                         float offsetY = (size - 1 - y) - (size / 2f) + 0.5f;
@@ -659,7 +719,7 @@ public class TetrisEngine : NetworkBehaviour
         }
         else
         {
-            for (int i = 0; i < 4; i++) if (holdVisualBlocks[i] != null) holdVisualBlocks[i].position = new Vector3(-1000, -1000, 0);
+            for (int i = 0; i < MaxPieceBlocks; i++) if (holdVisualBlocks[i] != null) holdVisualBlocks[i].position = new Vector3(-1000, -1000, 0);
         }
 
         // 6. --- SKILL BUTTON FADING VISUALS ---
@@ -695,7 +755,8 @@ public class TetrisEngine : NetworkBehaviour
                 // Call the Scene's UI Manager via the Singleton!
                 if (GameOverManager.Instance != null)
                 {
-                    GameOverManager.Instance.TriggerGameOver(SkillPoints);
+                    bool isVersusMatch = FindObjectsByType<TetrisEngine>(FindObjectsSortMode.None).Length > 1;
+                    GameOverManager.Instance.TriggerGameOver(Score, isVersusMatch, IsWinner);
                 }
             }
         }

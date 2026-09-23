@@ -10,9 +10,14 @@ using UnityEngine.UI;
 
 public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
 {
+    private const int MenuSceneBuildIndex = 0;
     private const int MultiplayerSceneBuildIndex = 1;
     private const int SinglePlayerSceneBuildIndex = 2;
     private NetworkRunner _runner;
+
+    // The launcher running the current session (it survives scene loads)
+    public static FusionLauncher SessionOwner { get; private set; }
+    private bool _returningToMenu = false;
     public NetworkPrefabRef playerBoardPrefab;
 
     [Header("Spawn Locations")]
@@ -47,8 +52,6 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
 
     void Start()
     {
-        DontDestroyOnLoad(gameObject);
-
         if (nameInputField != null) nameInputField.text = PlayerPrefs.GetString("PlayerName", "Player 1");
 
         if (volumeSlider != null)
@@ -128,9 +131,36 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
 
     public void Button_CancelMatchmaking()
     {
-        if (_runner != null) _runner.Shutdown();
-        matchLobbyPanel.SetActive(false);
-        modeSelectPanel.SetActive(true);
+        if (_runner != null && _runner.IsRunning)
+        {
+            LeaveSession(1); // Reloads the menu on the mode select panel
+            return;
+        }
+        if (matchLobbyPanel) matchLobbyPanel.SetActive(false);
+        if (modeSelectPanel) modeSelectPanel.SetActive(true);
+    }
+
+    // Ends the session (if any) and goes back to the menu scene. targetMenu: 0 = main menu, 1 = mode select
+    public void LeaveSession(int targetMenu = 0)
+    {
+        PlayerPrefs.SetInt("TargetMenu", targetMenu);
+        if (_runner != null && _runner.IsRunning) _runner.Shutdown(); // OnShutdown returns to the menu
+        else StartCoroutine(ReturnToMenu(0f));
+    }
+
+    private IEnumerator ReturnToMenu(float delay)
+    {
+        if (_returningToMenu) yield break;
+        _returningToMenu = true;
+
+        // Never tear down from inside a Fusion callback
+        yield return null;
+        if (delay > 0f) yield return new WaitForSeconds(delay);
+
+        if (SessionOwner == this) SessionOwner = null;
+        SceneManager.LoadScene(MenuSceneBuildIndex);
+        // The fresh menu scene brings its own launcher with its UI references
+        Destroy(gameObject);
     }
 
     public void Button_SinglePlayer()
@@ -168,6 +198,10 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
             Destroy(_runner);
         }
 
+        // Only the launcher that owns the session persists across scene loads
+        DontDestroyOnLoad(gameObject);
+        SessionOwner = this;
+
         _runner = gameObject.AddComponent<NetworkRunner>();
         _runner.AddCallbacks(this);
         _runner.ProvideInput = true;
@@ -175,7 +209,9 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         var startGameArgs = new StartGameArgs()
         {
             GameMode = _isSinglePlayer ? GameMode.Single : GameMode.AutoHostOrClient,
-            SessionName = _isSinglePlayer ? Guid.NewGuid().ToString() : "TetrisRoom",
+            // Multiplayer: no session name = random matchmaking (join any open match, or host a new one),
+            // so many matches can run at once instead of everyone fighting over a single room
+            SessionName = _isSinglePlayer ? Guid.NewGuid().ToString() : null,
             SceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>(),
             PlayerCount = maxPlayers
         };
@@ -192,7 +228,8 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         {
             Debug.LogError($"Matchmaking Failed: {result.ShutdownReason}");
             if (lobbyStatusText) lobbyStatusText.text = $"ERROR: {result.ShutdownReason}";
-            Invoke(nameof(Button_CancelMatchmaking), 3f); // Kick them back to the menu after 3 seconds
+            PlayerPrefs.SetInt("TargetMenu", 1);
+            StartCoroutine(ReturnToMenu(3f)); // Kick them back to the menu after 3 seconds
         }
     }
 
@@ -232,6 +269,15 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
 
     public void OnPlayerLeft(NetworkRunner runner, PlayerRef player)
     {
+        // Opponent quit mid-match: whoever is still here wins
+        if (!_isSinglePlayer && runner.IsServer && SceneManager.GetActiveScene().buildIndex == MultiplayerSceneBuildIndex)
+        {
+            foreach (TetrisEngine board in FindObjectsByType<TetrisEngine>(FindObjectsSortMode.None))
+            {
+                if (board.Object != null && board.Object.InputAuthority != player) board.DeclareWinner();
+            }
+        }
+
         // Instantly reset the lobby if the opponent disconnects
         if (!_isSinglePlayer && matchLobbyPanel != null && matchLobbyPanel.activeInHierarchy)
         {
@@ -377,6 +423,18 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         if (matchLobbyPanel) matchLobbyPanel.SetActive(false);
     }
 
+    public void OnShutdown(NetworkRunner runner, ShutdownReason reason)
+    {
+        // We lost the connection (e.g. the host left) while our result screen is up:
+        // stay on it and let the player press Return, which calls LeaveSession
+        bool resultScreenShowing = GameOverManager.Instance != null && GameOverManager.Instance.IsShowing;
+        if (reason != ShutdownReason.Ok && resultScreenShowing) return;
+
+        // A failed connection in the lobby is shown for a moment before leaving
+        bool inLobby = SceneManager.GetActiveScene().buildIndex == MenuSceneBuildIndex;
+        StartCoroutine(ReturnToMenu(inLobby && reason != ShutdownReason.Ok ? 3f : 0f));
+    }
+
     public void OnInput(NetworkRunner runner, NetworkInput input)
     {
         input.Set(_localInput);
@@ -386,7 +444,6 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     #region Unused Fusion Callbacks
 
     public void OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input) { }
-    public void OnShutdown(NetworkRunner runner, ShutdownReason info) { }
     public void OnConnectedToServer(NetworkRunner runner) { }
     public void OnDisconnectedFromServer(NetworkRunner runner, NetDisconnectReason reason) { }
     public void OnConnectRequest(NetworkRunner runner, NetworkRunnerCallbackArgs.ConnectRequest request, byte[] token) { }

@@ -10,13 +10,20 @@ public class GameOverManager : MonoBehaviour
 
     [Header("UI Elements")]
     public GameObject gameOverPanel;
+    [Tooltip("Optional title: GAME OVER / YOU WIN! / YOU LOSE")]
+    public TextMeshProUGUI resultText;
     public TextMeshProUGUI finalScoreText;
     public TextMeshProUGUI highScoreText;
 
     void Awake()
     {
-        // Initialize the Singleton when the scene starts
-        if (Instance == null) Instance = this;
+        // Each gameplay scene load brings a fresh manager; the previous one was destroyed with its scene
+        Instance = this;
+    }
+
+    void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
     }
 
     void Start()
@@ -28,10 +35,17 @@ public class GameOverManager : MonoBehaviour
         }
     }
 
-    public void TriggerGameOver(int finalScore)
+    public void TriggerGameOver(int finalScore, bool isVersusMatch = false, bool isWinner = false)
     {
         // 1. Show the panel
         if (gameOverPanel != null) gameOverPanel.SetActive(true);
+
+        if (resultText != null)
+        {
+            if (!isVersusMatch) resultText.text = "GAME OVER";
+            else if (isWinner) resultText.text = "<color=green>YOU WIN!</color>";
+            else resultText.text = "<color=red>YOU LOSE</color>";
+        }
 
         // 2. Calculate High Score
         int savedHighScore = PlayerPrefs.GetInt("MyHighScore", 0);
@@ -52,14 +66,16 @@ public class GameOverManager : MonoBehaviour
         // Hide the panel instantly to avoid double-clicks or visual lingering
         if (gameOverPanel != null) gameOverPanel.SetActive(false);
 
-        NetworkRunner runner = FindAnyObjectByType<NetworkRunner>();
-        if (runner != null)
+        if (FusionLauncher.SessionOwner != null)
         {
-            runner.Shutdown();
+            // Shuts the runner down, reloads the menu and cleans up the persistent launcher
+            FusionLauncher.SessionOwner.LeaveSession();
         }
         else
         {
             UnityEngine.SceneManagement.SceneManager.LoadScene(0);
         }
     }
+
+    public bool IsShowing => gameOverPanel != null && gameOverPanel.activeSelf;
 }
