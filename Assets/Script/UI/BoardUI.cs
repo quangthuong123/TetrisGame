@@ -10,15 +10,8 @@ public class BoardUI : NetworkBehaviour
 
     [Header("Skill Icons & SP")]
     public TextMeshProUGUI spText;
-
-    [Header("Score & High Score (all optional)")]
-    public TextMeshProUGUI scoreText;
-    [Tooltip("Shows the best score, counting up live once you pass it")]
-    public TextMeshProUGUI highScoreText;
-    public TextMeshProUGUI linesText;
-    public Color newBestColor = Color.yellow;
-    private int _savedHighScore;
-    private Color _highScoreBaseColor;
+    [Tooltip("Visual SP bar. Create one with Tools > Tetris > Create SP Bar")]
+    public SkillPointBar spBar;
 
     // Explicitly using UnityEngine.UI.Image to prevent ambiguity!
     public UnityEngine.UI.Image skill1Icon;
@@ -42,9 +35,6 @@ public class BoardUI : NetworkBehaviour
         if (uiCanvasObject == null) uiCanvasObject = gameObject;
 
         uiCanvasObject.SetActive(HasInputAuthority);
-
-        _savedHighScore = GameOverManager.SavedHighScore;
-        if (highScoreText != null) _highScoreBaseColor = highScoreText.color;
     }
 
     public override void Render()
@@ -54,16 +44,7 @@ public class BoardUI : NetworkBehaviour
 
         // 1. Update the SP Number
         if (spText != null) spText.text = "SP: " + engine.SkillPoints;
-
-        // 1b. Score, lines and the live high score counter
-        if (scoreText != null) scoreText.text = "SCORE: " + engine.Score;
-        if (linesText != null) linesText.text = "LINES: " + engine.LinesCleared;
-        if (highScoreText != null)
-        {
-            bool beatingBest = engine.Score > _savedHighScore;
-            highScoreText.text = (beatingBest ? "NEW BEST: " : "BEST: ") + Mathf.Max(engine.Score, _savedHighScore);
-            highScoreText.color = beatingBest ? newBestColor : _highScoreBaseColor;
-        }
+        if (spBar != null) spBar.SetSkillPoints(engine.SkillPoints);
 
         // 2. Light up the Skill Icons based on the 3 Tiers
         if (skill1Icon != null) skill1Icon.color = engine.SkillPoints >= 200 ? affordableColor : lockedColor;

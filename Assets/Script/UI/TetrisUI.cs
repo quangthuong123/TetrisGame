@@ -1,9 +1,12 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 using TMPro; // You need this for TextMeshPro
 
+// Drives the scene's CurrentScore text with the local player's score
 public class TetrisUI : MonoBehaviour
 {
-    public TextMeshProUGUI spText;
+    [FormerlySerializedAs("spText")] // Keeps the existing scene reference
+    public TextMeshProUGUI scoreText;
     private TetrisEngine myBoard;
 
     void Update()
@@ -11,7 +14,7 @@ public class TetrisUI : MonoBehaviour
         // Find the board that belongs to THIS local player
         if (myBoard == null)
         {
-            TetrisEngine[] allBoards = FindObjectsOfType<TetrisEngine>();
+            TetrisEngine[] allBoards = FindObjectsByType<TetrisEngine>(FindObjectsSortMode.None);
             foreach (TetrisEngine board in allBoards)
             {
                 if (board.Object != null && board.Object.HasInputAuthority)
@@ -22,10 +25,10 @@ public class TetrisUI : MonoBehaviour
             }
         }
 
-        // Update the text box with the Skill Points
-        if (myBoard != null)
+        // Update the text box with the score
+        if (myBoard != null && myBoard.Object != null && scoreText != null)
         {
-            spText.text = "Skill Points: " + myBoard.SkillPoints;
+            scoreText.text = "Score: " + myBoard.Score;
         }
     }
 }
