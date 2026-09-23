@@ -13,6 +13,8 @@ public class BoardUI : NetworkBehaviour
     [Tooltip("Visual SP bar. Create one with Tools > Tetris > Create SP Bar")]
     public SkillPointBar spBar;
 
+    private int _lastCountdown = -1;
+
     // Explicitly using UnityEngine.UI.Image to prevent ambiguity!
     public UnityEngine.UI.Image skill1Icon;
     public UnityEngine.UI.Image skill2Icon;
@@ -52,9 +54,22 @@ public class BoardUI : NetworkBehaviour
         if (skill3Icon != null) skill3Icon.color = engine.SkillPoints >= 1200 ? affordableColor : lockedColor;
 
         // 3. Show a warning if an attack is queued up!
+        int countdown = Mathf.CeilToInt(engine.StartCountdown);
+        if (countdown != _lastCountdown)
+        {
+            if (countdown > 0) AudioManager.Play(Sfx.CountdownTick);
+            else if (_lastCountdown > 0) AudioManager.Play(Sfx.CountdownGo);
+            _lastCountdown = countdown;
+        }
+
         if (warningPanel != null)
         {
-            if (engine.ForcedNextPiece > 0)
+            if (countdown > 0)
+            {
+                warningPanel.SetActive(true);
+                if (warningText != null) warningText.text = "GET READY... " + countdown;
+            }
+            else if (engine.ForcedNextPiece > 0)
             {
                 warningPanel.SetActive(true);
 

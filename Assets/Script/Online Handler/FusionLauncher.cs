@@ -105,7 +105,7 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         // --- PING IDENTIFICATION ---
         if (_runner != null && _runner.IsRunning && pingText != null)
         {
-            double rtt = _runner.GetPlayerRtt(PlayerRef.None);
+            double rtt = _runner.GetPlayerRtt(_runner.LocalPlayer);
             int pingMs = Mathf.RoundToInt((float)rtt * 1000f);
 
             pingText.text = $"Ping: {pingMs} ms";
@@ -246,8 +246,9 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (_isSinglePlayer)
         {
+            // StartGame already loads the single player scene (startGameArgs.Scene); loading it
+            // again here reloaded the scene and could spawn the boards twice
             if (matchLobbyPanel) matchLobbyPanel.SetActive(false);
-            if (runner.IsServer) runner.LoadScene(SceneRef.FromIndex(2));
             return;
         }
 
@@ -283,7 +284,9 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         {
             foreach (TetrisEngine board in FindObjectsByType<TetrisEngine>(FindObjectsSortMode.None))
             {
-                if (board.Object != null && board.Object.InputAuthority != player) board.DeclareWinner();
+                if (board.Object == null) continue;
+                if (board.Object.InputAuthority != player) board.DeclareWinner();
+                else board.Forfeit(); // Stop the leaver's board instead of letting it fall on its own
             }
         }
 
@@ -320,16 +323,25 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
         if (p1StatusText) p1StatusText.text = "<color=green>READY ✓</color>";
         if (readyButton) readyButton.SetActive(false);
 
-        // Send a network message to the opponent saying we are ready (Signal '1')
-        foreach (var p in _runner.ActivePlayers)
-        {
-            if (p != _runner.LocalPlayer)
-            {
-                _runner.SendReliableDataToPlayer(p, ReliableKey.FromInts(1), new byte[] { 1 });
-            }
-        }
+        if (_runner == null || !_runner.IsRunning) return;
 
-        if (_runner.IsServer) CheckBothReady();
+        // Send a network message to the opponent saying we are ready (Signal '1').
+        // The host sends to the client; a client always talks to the host through the server.
+        if (_runner.IsServer)
+        {
+            foreach (var p in _runner.ActivePlayers)
+            {
+                if (p != _runner.LocalPlayer)
+                {
+                    _runner.SendReliableDataToPlayer(p, ReliableKey.FromInts(1), new byte[] { 1 });
+                }
+            }
+            CheckBothReady();
+        }
+        else
+        {
+            _runner.SendReliableDataToServer(ReliableKey.FromInts(1), new byte[] { 1 });
+        }
     }
 
     public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, ArraySegment<byte> data)

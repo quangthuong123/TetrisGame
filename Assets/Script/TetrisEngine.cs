@@ -25,6 +25,7 @@ public class TetrisEngine : NetworkBehaviour
     [Networked] public int CurrentPieceID { get; set; }
     [Networked] public bool IsInitialized { get; set; }
     [Networked] public bool IsGameOver { get; set; }
+    [Networked] public TickTimer StartDelay { get; set; } // Both boards wait on this so everyone starts together
 
     // --- 7-Bag & Hold Data ---
     [Networked, Capacity(7)] public NetworkArray<int> Bag { get; }
@@ -103,6 +104,13 @@ public class TetrisEngine : NetworkBehaviour
 
     private Tetromino currentPiece;
 
+    [Header("Match Start")]
+    [Tooltip("Countdown before pieces start falling, so a client still loading the scene isn't behind")]
+    public float startDelaySeconds = 3f;
+
+    // Seconds left before the match starts (0 once it has started)
+    public float StartCountdown => IsInitialized ? 0f : (StartDelay.RemainingTime(Runner) ?? 0f);
+
     [Header("Game Speeds")]
     public float baseFallSpeed = 0.8f;
     public float softDropSpeed = 0.05f;
@@ -140,11 +148,51 @@ public class TetrisEngine : NetworkBehaviour
         }
 
         if (boardBackground != null) boardBackground.color = HasInputAuthority ? myBoardColor : opponentBoardColor;
+
+        PlaceOnThisScreen();
+
+        if (HasStateAuthority && !IsInitialized)
+        {
+            StartDelay = TickTimer.CreateFromSeconds(Runner, startDelaySeconds);
+            // Nothing to draw until the first piece spawns (default (0,0) would show blocks in the corner)
+            for (int i = 0; i < MaxPieceBlocks; i++)
+            {
+                ActivePiecePositions.Set(i, Hidden);
+                GhostPiecePositions.Set(i, Hidden);
+            }
+        }
+    }
+
+    // Spawn positions aren't networked (the board has no NetworkTransform), so each screen places
+    // the boards itself: your own board in the player spot, the other one in the opponent spot.
+    void PlaceOnThisScreen()
+    {
+        string[] names = HasInputAuthority
+            ? new[] { "SpawnPoint Player", "SpawnPoint_P1" }
+            : new[] { "SpawnPoint Opp", "SpawnPoint_P2" };
+
+        foreach (string spotName in names)
+        {
+            GameObject spot = GameObject.Find(spotName);
+            if (spot != null)
+            {
+                transform.position = spot.transform.position;
+                return;
+            }
+        }
+    }
+
+    // A player who disconnects just stops; the remaining board is declared the winner separately
+    public void Forfeit()
+    {
+        if (!HasStateAuthority || IsGameOver) return;
+        IsGameOver = true;
     }
 
     public override void FixedUpdateNetwork()
     {
         if (IsGameOver) return;
+        if (!IsInitialized && !StartDelay.ExpiredOrNotRunning(Runner)) return;
 
         if (HasStateAuthority && !IsInitialized)
         {
