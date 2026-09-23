@@ -23,6 +23,14 @@ public class BoardUI : NetworkBehaviour
     [Header("Incoming Attack Warning")]
     public GameObject warningPanel;
     public TextMeshProUGUI warningText;
+    [Tooltip("Fading bubble for the warnings. Set by Tools > Tetris > Restyle Board Alerts")]
+    public WarningToast warningToast;
+
+    [Header("Skill Alert (opponent's skill hits you)")]
+    [Tooltip("Icons for skills 1-3, shown in the alert. Set by Tools > Tetris > Setup Skill Icons")]
+    public Sprite[] skillIcons = new Sprite[3];
+    public SkillAlert skillAlert;
+    private int _seenSkillHits = -1;
 
     [Header("Game Over UI")]
     public GameObject gameOverPanel;
@@ -49,9 +57,17 @@ public class BoardUI : NetworkBehaviour
         if (spBar != null) spBar.SetSkillPoints(engine.SkillPoints);
 
         // 2. Light up the Skill Icons based on the 3 Tiers
-        if (skill1Icon != null) skill1Icon.color = engine.SkillPoints >= 200 ? affordableColor : lockedColor;
-        if (skill2Icon != null) skill2Icon.color = engine.SkillPoints >= 600 ? affordableColor : lockedColor;
-        if (skill3Icon != null) skill3Icon.color = engine.SkillPoints >= 1200 ? affordableColor : lockedColor;
+        if (skill1Icon != null) skill1Icon.color = engine.SkillPoints >= TetrisEngine.SkillCost(1) ? affordableColor : lockedColor;
+        if (skill2Icon != null) skill2Icon.color = engine.SkillPoints >= TetrisEngine.SkillCost(2) ? affordableColor : lockedColor;
+        if (skill3Icon != null) skill3Icon.color = engine.SkillPoints >= TetrisEngine.SkillCost(3) ? affordableColor : lockedColor;
+
+        // 2b. Pop up the skill the opponent just hit us with
+        if (_seenSkillHits < 0) _seenSkillHits = engine.SkillHitCount;
+        else if (engine.SkillHitCount != _seenSkillHits)
+        {
+            _seenSkillHits = engine.SkillHitCount;
+            ShowSkillAlert(engine.LastSkillHit);
+        }
 
         // 3. Show a warning if an attack is queued up!
         int countdown = Mathf.CeilToInt(engine.StartCountdown);
@@ -62,34 +78,30 @@ public class BoardUI : NetworkBehaviour
             _lastCountdown = countdown;
         }
 
-        if (warningPanel != null)
+        string warning = null;
+        if (countdown > 0)
         {
-            if (countdown > 0)
-            {
-                warningPanel.SetActive(true);
-                if (warningText != null) warningText.text = "GET READY... " + countdown;
-            }
-            else if (engine.ForcedNextPiece > 0)
-            {
-                warningPanel.SetActive(true);
+            warning = "GET READY... " + countdown;
+        }
+        else if (engine.ForcedNextPiece > 0)
+        {
+            int tier = SkillInfo.TierForForcedPiece(engine.ForcedNextPiece);
+            warning = (tier == 3 ? "DANGER: " : "WARNING: ") + SkillInfo.Name(tier) + " INCOMING!";
+        }
+        else if (engine.PendingGarbage > 0)
+        {
+            warning = $"INCOMING: {engine.PendingGarbage} GARBAGE LINE{(engine.PendingGarbage > 1 ? "S" : "")}!";
+        }
 
-                if (warningText != null)
-                {
-                    if (engine.ForcedNextPiece == 99)
-                        warningText.text = "DANGER: X-BLOCK INCOMING!";
-                    else
-                        warningText.text = "WARNING: FORCED PIECE!";
-                }
-            }
-            else if (engine.PendingGarbage > 0)
-            {
-                warningPanel.SetActive(true);
-                if (warningText != null) warningText.text = $"INCOMING: {engine.PendingGarbage} GARBAGE LINE{(engine.PendingGarbage > 1 ? "S" : "")}!";
-            }
-            else
-            {
-                warningPanel.SetActive(false);
-            }
+        if (warningToast != null)
+        {
+            // Pops in when the warning changes, fades after 2 seconds
+            warningToast.SetMessage(warning);
+        }
+        else if (warningPanel != null)
+        {
+            warningPanel.SetActive(warning != null);
+            if (warning != null && warningText != null) warningText.text = warning;
         }
 
         // 4. Toggle the Game Over Panel
@@ -97,5 +109,12 @@ public class BoardUI : NetworkBehaviour
         {
             gameOverPanel.SetActive(engine.IsGameOver);
         }
+    }
+
+    void ShowSkillAlert(int tier)
+    {
+        if (skillAlert == null || tier < 1 || tier > 3) return;
+        Sprite icon = skillIcons != null && skillIcons.Length >= tier ? skillIcons[tier - 1] : null;
+        skillAlert.Show(icon, "OPPONENT USED " + SkillInfo.Name(tier) + "!", SkillInfo.EffectOnYou(tier));
     }
 }

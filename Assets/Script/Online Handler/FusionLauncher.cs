@@ -411,12 +411,13 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (!runner.IsServer) return;
 
+        // FindSpawnPoint also finds inactive markers (SinglePlayerScene's SpawnPoint Opp is inactive)
         Transform p1Spawn = spawnPoints != null && spawnPoints.Length > 0 && spawnPoints[0] != null
             ? spawnPoints[0]
-            : GameObject.Find("SpawnPoint_P1")?.transform ?? GameObject.Find("SpawnPoint Player")?.transform;
+            : TetrisEngine.FindSpawnPoint(true);
         Transform p2Spawn = spawnPoints != null && spawnPoints.Length > 1 && spawnPoints[1] != null
             ? spawnPoints[1]
-            : GameObject.Find("SpawnPoint_P2")?.transform ?? GameObject.Find("SpawnPoint Opp")?.transform;
+            : TetrisEngine.FindSpawnPoint(false);
 
         int playersSpawned = 0;
         foreach (var player in runner.ActivePlayers)

@@ -55,6 +55,10 @@ public class TetrisEngine : NetworkBehaviour
     [Networked] public int SfxAttacksReceived { get; set; }
     [Networked] public int SfxGarbageRisen { get; set; }
 
+    // --- Skill Alerts ---
+    [Networked] public int SkillHitCount { get; set; } // Bumps each time an opponent's skill hits this board
+    [Networked] public int LastSkillHit { get; set; }  // Tier (1-3) of that skill
+
     // --- AI ---
     // Set on the host for a board NPCAI plays instead of a person (single player opponent)
     [HideInInspector] public NPCAI aiController;
@@ -89,10 +93,6 @@ public class TetrisEngine : NetworkBehaviour
     public Transform nextPieceAnchor;
     public Transform holdPieceAnchor;
 
-    [Header("Skill UI Images")]
-    public UnityEngine.UI.Image skill1Icon;
-    public UnityEngine.UI.Image skill2Icon;
-    public UnityEngine.UI.Image skill3Icon;
 
     private bool hasSavedScore = false;
 
@@ -167,19 +167,30 @@ public class TetrisEngine : NetworkBehaviour
     // the boards itself: your own board in the player spot, the other one in the opponent spot.
     void PlaceOnThisScreen()
     {
-        string[] names = HasInputAuthority
+        Transform spot = FindSpawnPoint(HasInputAuthority);
+        if (spot != null) transform.position = spot.position;
+    }
+
+    // Spawn points are only position markers, so inactive ones count too
+    // (GameObject.Find skips inactive objects, which left the AI board on top of yours)
+    public static Transform FindSpawnPoint(bool ownBoard)
+    {
+        string[] names = ownBoard
             ? new[] { "SpawnPoint Player", "SpawnPoint_P1" }
             : new[] { "SpawnPoint Opp", "SpawnPoint_P2" };
 
+        GameObject[] roots = UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects();
         foreach (string spotName in names)
         {
-            GameObject spot = GameObject.Find(spotName);
-            if (spot != null)
+            foreach (GameObject root in roots)
             {
-                transform.position = spot.transform.position;
-                return;
+                foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
+                {
+                    if (t.name == spotName) return t;
+                }
             }
         }
+        return null;
     }
 
     // A player who disconnects just stops; the remaining board is declared the winner separately
@@ -798,6 +809,7 @@ public class TetrisEngine : NetworkBehaviour
             NetworkGrid.Set(filledIndices[randomIndex], 0);
         }
         SfxAttacksReceived++;
+        RecordSkillHit(1);
     }
 
     public void ReceiveForcedPiece(int pieceID)
@@ -805,6 +817,13 @@ public class TetrisEngine : NetworkBehaviour
         if (!HasStateAuthority) return;
         ForcedNextPiece = pieceID;
         SfxAttacksReceived++;
+        RecordSkillHit(SkillInfo.TierForForcedPiece(pieceID));
+    }
+
+    void RecordSkillHit(int tier)
+    {
+        LastSkillHit = tier;
+        SkillHitCount++;
     }
 
     // ==========================================
@@ -1000,28 +1019,7 @@ public class TetrisEngine : NetworkBehaviour
             for (int i = 0; i < MaxPieceBlocks; i++) if (holdVisualBlocks[i] != null) holdVisualBlocks[i].position = new Vector3(-1000, -1000, 0);
         }
 
-        // 6. --- SKILL BUTTON FADING VISUALS ---
-        if (HasInputAuthority)
-        {
-            if (skill1Icon != null)
-            {
-                Color c1 = skill1Icon.color;
-                c1.a = SkillPoints >= 200 ? 1f : 0.3f;
-                skill1Icon.color = c1;
-            }
-            if (skill2Icon != null)
-            {
-                Color c2 = skill2Icon.color;
-                c2.a = SkillPoints >= 600 ? 1f : 0.3f;
-                skill2Icon.color = c2;
-            }
-            if (skill3Icon != null)
-            {
-                Color c3 = skill3Icon.color;
-                c3.a = SkillPoints >= 1200 ? 1f : 0.3f;
-                skill3Icon.color = c3;
-            }
-        }
+        // 6. Skill icons are lit/dimmed by BoardUI
 
         // 7. --- GAME OVER & HIGH SCORE RESOLUTION ---
         if (HasInputAuthority && IsGameOver)
