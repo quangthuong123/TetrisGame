@@ -2741,9 +2741,11 @@ MonoBehaviour:
   matchLobbyPanel: {fileID: 1834983897}
   nameInputField: {fileID: 0}
   volumeSlider: {fileID: 495616114}
+  menuHighScoreText: {fileID: 1009889620}
   lobbyStatusText: {fileID: 1009889620}
   p1StatusText: {fileID: 579253573}
   p2StatusText: {fileID: 1039541105}
+  pingText: {fileID: 0}
   countdownText: {fileID: 278325655}
   readyButton: {fileID: 841345007}
 --- !u!4 &1163922426

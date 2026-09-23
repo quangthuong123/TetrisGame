@@ -224,6 +224,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: Game over
       objectReference: {fileID: 0}
+    - target: {fileID: 6699635059007582319, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 8602508724825289779, guid: 9bdcb74b27996dd4f85312b1c9cc5670, type: 3}
       propertyPath: m_Pivot.x
       value: 0.5
@@ -750,9 +754,11 @@ MonoBehaviour:
   matchLobbyPanel: {fileID: 0}
   nameInputField: {fileID: 0}
   volumeSlider: {fileID: 0}
+  menuHighScoreText: {fileID: 0}
   lobbyStatusText: {fileID: 0}
   p1StatusText: {fileID: 0}
   p2StatusText: {fileID: 0}
+  pingText: {fileID: 0}
   countdownText: {fileID: 0}
   readyButton: {fileID: 0}
 --- !u!4 &664830085
@@ -830,6 +836,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ec6192e3939848541abe62d73fd98b73, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  mode: 0
+  difficulty: 1
+  useSavedDifficulty: 1
+  speedUpPerMinute: 0.1
+  fastestSpeedFactor: 0.4
+  firstAttackDelay: 20
   initialAttackInterval: 15
   minimumAttackInterval: 5
   difficultyIncrease: 0.5
@@ -1054,6 +1066,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   gameOverPanel: {fileID: 1340018375}
+  resultText: {fileID: 0}
   finalScoreText: {fileID: 0}
   highScoreText: {fileID: 0}
 --- !u!1660057539 &9223372036854775807
