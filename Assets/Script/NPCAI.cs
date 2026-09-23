@@ -19,7 +19,7 @@ public class NPCAI : MonoBehaviour
     [Tooltip("Use the difficulty saved by the menu (FusionLauncher.SetAIDifficulty) when there is one")]
     public bool useSavedDifficulty = true;
 
-    [Header("Board AI")]
+    [Header("Board AI")]object 
     [Tooltip("The AI reacts this much faster each minute (0.1 = 10%)")]
     [Range(0f, 0.5f)] public float speedUpPerMinute = 0.1f;
     [Tooltip("Reaction times never drop below this fraction of the starting ones")]
