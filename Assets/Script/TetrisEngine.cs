@@ -74,6 +74,7 @@ public class TetrisEngine : NetworkBehaviour
     [Header("Visuals")]
     public GameObject blockPrefab;
     public GameObject ghostPrefab;
+    [Range(0f, 1f)] public float ghostAlpha = 0.6f;
     [Tooltip("0=Empty, 1-7=Shapes, 8=Garbage, 9=Special X")]
     public Color[] blockColors = new Color[10];
     public SpriteRenderer boardBackground;
@@ -924,7 +925,7 @@ public class TetrisEngine : NetworkBehaviour
         if (HasInputAuthority && GameSettings.ShowGhost)
         {
             Color ghostColor = currentPieceColor;
-            ghostColor.a = 0.4f;
+            ghostColor.a = ghostAlpha;
 
             for (int i = 0; i < MaxPieceBlocks; i++)
             {

@@ -146,22 +146,18 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
     {
         PlayerPrefs.SetInt("TargetMenu", targetMenu);
         if (_runner != null && _runner.IsRunning) _runner.Shutdown(); // OnShutdown returns to the menu
-        else StartCoroutine(ReturnToMenu(0f));
+        else ReturnToMenu(0f);
     }
 
-    private IEnumerator ReturnToMenu(float delay)
+    private void ReturnToMenu(float delay)
     {
-        if (_returningToMenu) yield break;
+        if (_returningToMenu) return;
         _returningToMenu = true;
-
-        // Never tear down from inside a Fusion callback
-        yield return null;
-        if (delay > 0f) yield return new WaitForSeconds(delay);
-
         if (SessionOwner == this) SessionOwner = null;
-        SceneManager.LoadScene(MenuSceneBuildIndex);
-        // The fresh menu scene brings its own launcher with its UI references
-        Destroy(gameObject);
+
+        // Runs on its own object: Shutdown() destroys this launcher (the runner's GameObject),
+        // which used to kill the coroutine before the menu loaded
+        MenuReturner.Load(MenuSceneBuildIndex, delay, gameObject);
     }
 
     public void Button_SinglePlayer()
@@ -230,7 +226,7 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
             Debug.LogError($"Matchmaking Failed: {result.ShutdownReason}");
             if (lobbyStatusText) lobbyStatusText.text = $"ERROR: {result.ShutdownReason}";
             PlayerPrefs.SetInt("TargetMenu", 1);
-            StartCoroutine(ReturnToMenu(3f)); // Kick them back to the menu after 3 seconds
+            ReturnToMenu(3f); // Kick them back to the menu after 3 seconds
         }
     }
 
@@ -456,7 +452,7 @@ public class FusionLauncher : MonoBehaviour, INetworkRunnerCallbacks
 
         // A failed connection in the lobby is shown for a moment before leaving
         bool inLobby = SceneManager.GetActiveScene().buildIndex == MenuSceneBuildIndex;
-        StartCoroutine(ReturnToMenu(inLobby && reason != ShutdownReason.Ok ? 3f : 0f));
+        ReturnToMenu(inLobby && reason != ShutdownReason.Ok ? 3f : 0f);
     }
 
     private static bool AIBoardExists()
