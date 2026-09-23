@@ -7,6 +7,10 @@ public class TetrisEngine : NetworkBehaviour
     public const int Height = 20;
     public const int MaxPieceBlocks = 5; // The X attack piece has 5 cells
     private const int XPieceID = 9;
+    private const int GarbageID = 8;
+    private const int MaxLockResets = 15;      // Moves/rotations on the ground that can delay locking
+    private const int MaxPendingGarbage = 20;
+    private const int MaxGarbagePerLock = 8;   // Extra pending garbage waits for the next lock
     private static readonly Vector2Int Hidden = new Vector2Int(-1000, -1000);
 
     // --- NETWORKED LOGIC DATA ---
@@ -30,6 +34,11 @@ public class TetrisEngine : NetworkBehaviour
 
     // --- Pro Timers (DAS, ARR, Lock Delay) ---
     [Networked] public float LockTimer { get; set; }
+    [Networked] public int LockResets { get; set; }
+    [Networked] public int LowestPieceY { get; set; } // Reaching a new lowest row refills the lock resets
+
+    // --- Versus Garbage ---
+    [Networked] public int PendingGarbage { get; set; } // Lines queued to rise on this board
     [Networked] public float DasLeftTimer { get; set; }
     [Networked] public float DasRightTimer { get; set; }
 
@@ -48,6 +57,13 @@ public class TetrisEngine : NetworkBehaviour
     public Color opponentBoardColor = new Color(0.4f, 0.4f, 0.4f, 1f);
 
     private bool _isSpawned = false;
+
+    [Header("Incoming Garbage Meter")]
+    [Tooltip("X position (board units) of the meter bar; -0.8 sits just left of the board")]
+    public float garbageMeterOffsetX = -0.8f;
+    public float garbageMeterWidth = 0.35f;
+    public Color garbageMeterColor = new Color(1f, 0.2f, 0.2f, 1f);
+    private Transform[] garbageMeterBlocks = new Transform[MaxPendingGarbage];
 
     [Header("UI Anchors")]
     public Transform nextPieceAnchor;
@@ -95,6 +111,13 @@ public class TetrisEngine : NetworkBehaviour
             ghostVisualBlocks[i].position = new Vector3(-1000, -1000, 0);
             nextVisualBlocks[i].position = new Vector3(-1000, -1000, 0);
             holdVisualBlocks[i].position = new Vector3(-1000, -1000, 0);
+        }
+
+        for (int i = 0; i < MaxPendingGarbage; i++)
+        {
+            garbageMeterBlocks[i] = Instantiate(blockPrefab, transform).transform;
+            garbageMeterBlocks[i].localScale = Vector3.Scale(garbageMeterBlocks[i].localScale, new Vector3(garbageMeterWidth, 1f, 1f));
+            garbageMeterBlocks[i].position = new Vector3(-1000, -1000, 0);
         }
 
         if (boardBackground != null) boardBackground.color = HasInputAuthority ? myBoardColor : opponentBoardColor;
@@ -238,6 +261,7 @@ public class TetrisEngine : NetworkBehaviour
 
         Vector2Int startPos = new Vector2Int(Width / 2 - shape.GetLength(0) / 2, Height - shape.GetLength(1));
         currentPiece = new Tetromino(shape, startPos);
+        ResetLockDelay();
 
         if (!IsValidPosition(currentPiece.Position, currentPiece.Shape))
         {
@@ -291,6 +315,7 @@ public class TetrisEngine : NetworkBehaviour
             int[,] shape = TetrominoShapes.AllShapes[CurrentPieceID - 1];
             Vector2Int startPos = new Vector2Int(Width / 2 - shape.GetLength(0) / 2, Height - shape.GetLength(1));
             currentPiece = new Tetromino(shape, startPos);
+            ResetLockDelay();
 
             if (!IsValidPosition(currentPiece.Position, currentPiece.Shape))
             {
@@ -370,6 +395,30 @@ public class TetrisEngine : NetworkBehaviour
         LockPiece();
     }
 
+    // Lock delay "move reset": moving/rotating on the ground restarts the lock timer,
+    // but only MaxLockResets times per row, so a piece can't be stalled forever
+    void OnPieceMoved()
+    {
+        if (currentPiece.Position.y < LowestPieceY)
+        {
+            LowestPieceY = currentPiece.Position.y;
+            LockResets = 0;
+        }
+
+        if (LockTimer > 0f && LockResets < MaxLockResets)
+        {
+            LockTimer = 0f;
+            LockResets++;
+        }
+    }
+
+    void ResetLockDelay()
+    {
+        LockTimer = 0f;
+        LockResets = 0;
+        LowestPieceY = currentPiece != null ? currentPiece.Position.y : Height;
+    }
+
     bool TryMove(Vector2Int direction)
     {
         if (currentPiece == null) return false;
@@ -379,7 +428,7 @@ public class TetrisEngine : NetworkBehaviour
             currentPiece.Position = newPos;
             if (HasStateAuthority)
             {
-                LockTimer = 0f;
+                OnPieceMoved();
                 UpdateNetworkPiecePositions();
                 UpdateGhostPositions();
             }
@@ -409,7 +458,7 @@ public class TetrisEngine : NetworkBehaviour
                 currentPiece.Position = oldPos + kick;
                 if (HasStateAuthority)
                 {
-                    LockTimer = 0f;
+                    OnPieceMoved();
                     UpdateNetworkPiecePositions();
                     UpdateGhostPositions();
                 }
@@ -463,7 +512,7 @@ public class TetrisEngine : NetworkBehaviour
 
         CanHold = true;
         LockTimer = 0f;
-        CheckForLines();
+        int linesCleared = CheckForLines();
 
         // Lock out: part of the piece locked above the visible board
         if (lockedAboveBoard)
@@ -471,10 +520,16 @@ public class TetrisEngine : NetworkBehaviour
             TopOut();
             return;
         }
+
+        // Clearing lines attacks; placing a piece without clearing lets queued garbage rise
+        if (linesCleared > 0) SendGarbage(GarbageForLines(linesCleared));
+        else ApplyPendingGarbage();
+
+        if (IsGameOver) return;
         SpawnPiece();
     }
 
-    void CheckForLines()
+    int CheckForLines()
     {
         int linesCleared = 0;
         for (int y = 0; y < Height; y++)
@@ -499,6 +554,7 @@ public class TetrisEngine : NetworkBehaviour
             Score += spReward;
             LinesCleared += linesCleared;
         }
+        return linesCleared;
     }
 
     bool IsLineFull(int y)
@@ -526,6 +582,81 @@ public class TetrisEngine : NetworkBehaviour
     }
 
     // ==========================================
+    // --- VERSUS GARBAGE ---
+    // ==========================================
+    static int GarbageForLines(int lines)
+    {
+        if (lines == 2) return 1;
+        if (lines == 3) return 2;
+        if (lines >= 4) return 4; // Tetris
+        return 0;
+    }
+
+    void SendGarbage(int lines)
+    {
+        // Your own clears cancel garbage queued against you before any is sent
+        int cancelled = Mathf.Min(lines, PendingGarbage);
+        PendingGarbage -= cancelled;
+        lines -= cancelled;
+
+        if (lines <= 0) return;
+        TetrisEngine opponent = FindOpponent();
+        if (opponent != null) opponent.ReceiveGarbage(lines);
+    }
+
+    public void ReceiveGarbage(int lines)
+    {
+        if (!HasStateAuthority || IsGameOver) return;
+        PendingGarbage = Mathf.Min(MaxPendingGarbage, PendingGarbage + lines);
+    }
+
+    // Pushes the stack up and fills the bottom with garbage rows sharing one random hole
+    void ApplyPendingGarbage()
+    {
+        int rows = Mathf.Min(PendingGarbage, MaxGarbagePerLock);
+        if (rows <= 0) return;
+        PendingGarbage -= rows;
+
+        // Anything in the top rows gets pushed off the board
+        bool overflow = false;
+        for (int y = Height - rows; y < Height && !overflow; y++)
+        {
+            for (int x = 0; x < Width; x++)
+            {
+                if (NetworkGrid[y * Width + x] != 0) { overflow = true; break; }
+            }
+        }
+
+        for (int y = Height - 1; y >= rows; y--)
+        {
+            for (int x = 0; x < Width; x++)
+            {
+                NetworkGrid.Set(y * Width + x, NetworkGrid[(y - rows) * Width + x]);
+            }
+        }
+
+        int hole = Random.Range(0, Width);
+        for (int y = 0; y < rows; y++)
+        {
+            for (int x = 0; x < Width; x++)
+            {
+                NetworkGrid.Set(y * Width + x, x == hole ? 0 : GarbageID);
+            }
+        }
+
+        if (overflow) TopOut();
+    }
+
+    TetrisEngine FindOpponent()
+    {
+        foreach (TetrisEngine board in FindObjectsByType<TetrisEngine>(FindObjectsSortMode.None))
+        {
+            if (board != this && board.Object != null && board.Object.InputAuthority != Object.InputAuthority) return board;
+        }
+        return null;
+    }
+
+    // ==========================================
     // --- SKILL LOGIC ---
     // ==========================================
     void UseSkill(int tier)
@@ -542,17 +673,12 @@ public class TetrisEngine : NetworkBehaviour
 
     void AttackOpponent(int tier)
     {
-        TetrisEngine[] allBoards = FindObjectsByType<TetrisEngine>(FindObjectsSortMode.None);
-        foreach (TetrisEngine board in allBoards)
-        {
-            if (board.Object.InputAuthority != this.Object.InputAuthority)
-            {
-                if (tier == 1) board.ReceiveBlockDelete();
-                if (tier == 2) board.ReceiveForcedPiece(5);
-                if (tier == 3) board.ReceiveForcedPiece(99);
-                break;
-            }
-        }
+        TetrisEngine board = FindOpponent();
+        if (board == null) return;
+
+        if (tier == 1) board.ReceiveBlockDelete();
+        if (tier == 2) board.ReceiveForcedPiece(5);
+        if (tier == 3) board.ReceiveForcedPiece(99);
     }
 
     public void ReceiveBlockDelete()
@@ -656,7 +782,19 @@ public class TetrisEngine : NetworkBehaviour
             for (int i = 0; i < MaxPieceBlocks; i++) if (ghostVisualBlocks[i] != null) ghostVisualBlocks[i].position = new Vector3(-1000, -1000, 0);
         }
 
-        // 4. Draw NEXT PIECE Shape 
+        // 3b. Incoming garbage meter: a red bar beside the board, one cell per queued line
+        for (int i = 0; i < MaxPendingGarbage; i++)
+        {
+            if (garbageMeterBlocks[i] == null) continue;
+            if (i < PendingGarbage)
+            {
+                garbageMeterBlocks[i].position = transform.position + new Vector3(garbageMeterOffsetX, i, 0);
+                garbageMeterBlocks[i].GetComponent<SpriteRenderer>().color = garbageMeterColor;
+            }
+            else garbageMeterBlocks[i].position = new Vector3(-1000, -1000, 0);
+        }
+
+        // 4. Draw NEXT PIECE Shape
         int targetPieceToDisplay = ForcedNextPiece > 0 ? (ForcedNextPiece == 99 ? XPieceID : ForcedNextPiece) : NextPieceID;
 
         if (HasInputAuthority && nextPieceAnchor != null && targetPieceToDisplay > 0)

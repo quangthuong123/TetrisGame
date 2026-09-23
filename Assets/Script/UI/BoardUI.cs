@@ -63,6 +63,11 @@ public class BoardUI : NetworkBehaviour
                         warningText.text = "WARNING: FORCED PIECE!";
                 }
             }
+            else if (engine.PendingGarbage > 0)
+            {
+                warningPanel.SetActive(true);
+                if (warningText != null) warningText.text = $"INCOMING: {engine.PendingGarbage} GARBAGE LINE{(engine.PendingGarbage > 1 ? "S" : "")}!";
+            }
             else
             {
                 warningPanel.SetActive(false);
